@@ -1,0 +1,2981 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WebRTC 现代化通讯工具</title>
+    <style>
+        :root {
+            --primary-color: #007aff;
+            --primary-hover: #0056b3;
+            --bg-color: #f0f2f5;
+            --chat-bg: #ffffff;
+            --sidebar-bg: #2c3e50;
+            --sidebar-text: #ecf0f1;
+            --my-msg-bg: #007aff;
+            --my-msg-text: #ffffff;
+            --other-msg-bg: #e4e6eb;
+            --other-msg-text: #050505;
+            --border-radius: 12px;
+            --shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; outline: none; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; height: 100vh; height: -webkit-fill-available;min-height: -webkit-fill-available;overflow: hidden; background-color: var(--bg-color); display: flex; justify-content: center; align-items: center; }
+
+        /* --- 通用组件 --- */
+        button { cursor: pointer; border: none; transition: all 0.2s; font-size: 14px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; }
+        .btn-primary { background: var(--primary-color); color: white; padding: 8px 16px; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-icon { background: transparent; color: inherit; padding: 8px; border-radius: 50%; }
+        .btn-icon:hover { background: rgba(0,0,0,0.05); }
+        
+        /* 布局容器 */
+        #app-container { width: 100%; height: 100%;height: 100dvh; display: flex; background: var(--chat-bg); overflow: hidden; position: relative; box-shadow: var(--shadow); }
+
+        /* --- 侧边栏 (PC/移动端通用) --- */
+        #sidebar { width: 280px; background: var(--sidebar-bg); color: var(--sidebar-text); display: flex; flex-direction: column; transition: transform 0.3s ease; z-index: 10; }
+        .sidebar-header { padding: 20px; font-weight: bold; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; }
+        .connection-status { font-size: 12px; padding: 4px 8px; border-radius: 4px; background: #e74c3c; color: white; margin-top: 5px; display: inline-block; }
+        .connection-status.connected { background: #2ecc71; }
+        
+        .sidebar-menu { flex: 1; padding: 10px; }
+        .menu-item { padding: 12px; border-radius: 8px; cursor: pointer; margin-bottom: 5px; display: flex; align-items: center; gap: 10px; opacity: 0.7; }
+        .menu-item:hover, .menu-item.active { background: rgba(255,255,255,0.1); opacity: 1; }
+        
+        .settings-trigger { cursor: pointer; padding: 15px; background: rgba(0,0,0,0.2); text-align: center; font-size: 14px; }
+
+        /* --- 主聊天区域 --- */
+        #main-area { flex: 1; display: flex; flex-direction: column; background: var(--bg-color); position: relative; }
+        
+        /* 顶部栏 */
+        .chat-header { height: 60px; background: var(--chat-bg); padding: 0 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #ddd; }
+        .chat-title { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 10px; }
+        .back-btn { display: none; } /* 移动端显示 */
+
+        /* 消息列表 */
+        #message-list { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+        .message { max-width: 70%; padding: 10px 14px; border-radius: 18px; font-size: 15px; line-height: 1.4; position: relative; word-wrap: break-word; }
+        .message.my { align-self: flex-end; background: var(--my-msg-bg); color: var(--my-msg-text); border-bottom-right-radius: 4px; }
+        .message.other { align-self: flex-start; background: var(--other-msg-bg); color: var(--other-msg-text); border-bottom-left-radius: 4px; }
+        .message img { max-width: 100%; border-radius: 8px; margin-top: 5px; display: block; }
+        .message .file-download { color: #007aff; text-decoration: underline; cursor: pointer; display: block; margin-top: 5px; }
+        .message .time { font-size: 10px; opacity: 0.7; text-align: right; margin-top: 4px; }
+        .message-content img { max-width: 200px; max-height: 200px; border-radius: 8px; margin: 4px 0; display: block; }
+
+        /* 底部输入区 - 富文本编辑器 */
+        .input-area { min-height: 60px; max-height: 200px; background: var(--chat-bg); padding: 10px 15px; display: flex; align-items: flex-end; gap: 10px; border-top: 1px solid #ddd; }
+        
+        /* 富文本编辑器样式 */
+        .rich-editor-container { 
+            flex: 1; 
+            position: relative; 
+            background: #f0f2f5; 
+            border-radius: 20px; 
+            border: 1px solid #ddd; 
+            transition: 0.2s; 
+            padding: 8px 15px;
+        }
+        .rich-editor-container:focus-within { 
+            background: #fff; 
+            border-color: var(--primary-color); 
+        }
+        
+        #rich-input { 
+            width: 100%; 
+            min-height: 36px; 
+            max-height: 120px; 
+            overflow-y: auto; 
+            outline: none; 
+            font-size: 15px; 
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+        #rich-input img { 
+            max-width: 150px; 
+            max-height: 150px; 
+            border-radius: 8px; 
+            vertical-align: middle; 
+            margin: 2px;
+        }
+        #rich-input:empty:before {
+            content: "输入消息...";
+            color: #999;
+            pointer-events: none;
+        }
+        
+        .editor-toolbar { 
+            display: flex; 
+            gap: 8px; 
+            padding: 4px 0; 
+            border-top: 1px solid #e0e0e0; 
+            margin-top: 4px;
+        }
+        .toolbar-btn { 
+            background: transparent; 
+            border: none; 
+            cursor: pointer; 
+            padding: 4px 8px; 
+            border-radius: 4px; 
+            font-size: 16px; 
+            color: #65676b;
+        }
+        .toolbar-btn:hover { background: rgba(0,0,0,0.05); }
+        
+        .action-btns { display: flex; gap: 8px; color: #65676b; align-items: center; }
+
+        /* --- 弹窗 --- */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; display: flex; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+        .modal-overlay.open { opacity: 1; pointer-events: auto; }
+        .modal { background: white; width: 90%; max-width: 400px; border-radius: 16px; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); transform: translateY(20px); transition: transform 0.3s; }
+        .modal-overlay.open .modal { transform: translateY(0); }
+        .modal h3 { margin-bottom: 16px; font-size: 18px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; font-size: 13px; color: #65676b; }
+        .form-group select, .form-group input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+        /* --- 视频通话界面 --- */
+        #video-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 200;
+        }
+
+        .video-hidden { display: none !important; }
+
+        .video-window {
+            position: absolute;
+            width: 640px;
+            height: 480px;
+            min-width: 320px;
+            min-height: 240px;
+            background: #1a1a1a;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            pointer-events: auto;
+            user-select: none;
+            transition: box-shadow 0.2s;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .video-window.dragging {
+            opacity: 0.9;
+            box-shadow: 0 15px 50px rgba(0,0,0,0.6);
+        }
+
+        .video-window.maximized {
+            width: 100% !important;
+            height: 100% !important;
+            top: 0 !important;
+            left: 0 !important;
+            transform: none !important;
+            border-radius: 0;
+        }
+
+        .video-header {
+            height: 40px;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            cursor: move;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .video-title {
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .video-window-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .window-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            border: none;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .window-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .window-btn.close:hover {
+            background: #e74c3c;
+        }
+
+        .video-content {
+            flex: 1;
+            position: relative;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #remote-video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+
+        #local-video {
+            position: absolute;
+            width: 160px;
+            height: 120px;
+            background: #333;
+            bottom: 16px;
+            right: 16px;
+            border-radius: 8px;
+            border: 2px solid rgba(255,255,255,0.2);
+            object-fit: cover;
+            z-index: 201;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            display: none;
+        }
+
+        .video-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 16px;
+            z-index: 202;
+            background: rgba(0,0,0,0.6);
+            padding: 10px 20px;
+            border-radius: 30px;
+            backdrop-filter: blur(10px);
+        }
+
+        .video-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255,255,255,0.15);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: all 0.2s;
+            backdrop-filter: blur(5px);
+        }
+
+        .video-btn:hover {
+            background: rgba(255,255,255,0.25);
+            transform: scale(1.05);
+        }
+
+        .video-btn.hangup {
+            background: #e74c3c;
+        }
+
+        .video-btn.hangup:hover {
+            background: #c0392b;
+        }
+
+        .video-btn.active {
+            background: #2ecc71;
+        }
+
+        .resize-handle {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 20px;
+            height: 20px;
+            cursor: se-resize;
+            background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.3) 50%);
+            border-bottom-right-radius: 12px;
+        }
+
+        .video-window.maximized .resize-handle {
+            display: none;
+        }
+
+        /* 视频按钮激活状态 */
+        #btn-video-call.active {
+            background: #2ecc71;
+            color: white;
+        }
+
+        #btn-video-call.active:hover {
+            background: #27ae60;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            .video-window {
+                width: 100%;
+                height: 100%;
+                border-radius: 0;
+                top: 0 !important;
+                left: 0 !important;
+                transform: none !important;
+            }
+            
+            .resize-handle {
+                display: none;
+            }
+            
+            #local-video {
+                width: 120px;
+                height: 90px;
+                bottom: 80px;
+                right: 10px;
+            }
+        }
+
+        /* Toast 提示 */
+        #toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 10px 20px; border-radius: 30px; font-size: 14px; z-index: 1000; transition: opacity 0.3s; opacity: 0; pointer-events: none; }
+        #toast.show { opacity: 1; }
+
+        /* 文件传输进度 */
+        .file-progress { margin-top: 8px; }
+        .file-progress-bar { height: 4px; background: rgba(0,0,0,0.1); border-radius: 2px; overflow: hidden; }
+        .file-progress-fill { height: 100%; background: var(--primary-color); transition: width 0.3s; }
+        .file-progress-text { font-size: 11px; color: #666; margin-top: 4px; }
+
+        /* 响应式适配 */
+        @media (max-width: 768px) {
+            #sidebar { position: absolute; height: 100%; transform: translateX(-100%); box-shadow: 2px 0 10px rgba(0,0,0,0.2); }
+            #sidebar.mobile-open { transform: translateX(0); }
+            .back-btn { display: block; margin-right: 10px; cursor: pointer; }
+            #local-video { width: 90px; height: 120px; bottom: 70px; right: 10px; }
+            .message { max-width: 85%; }
+        }
+
+        /* 添加文本框样式 */
+        textarea {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 8px;
+            background: #f8f9fa;
+        }
+
+        textarea[readonly] {
+            background: #e9ecef;
+        }
+
+        /* 移动端适配文本框 */
+        @media (max-width: 768px) {
+            .modal {
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+            
+            textarea {
+                font-size: 14px; /* 防止iOS缩放 */
+            }
+        }
+        /* 复制按钮样式 */
+        .toolbar-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 16px;
+            color: #65676b;
+            transition: all 0.2s;
+        }
+
+        .toolbar-btn:hover {
+            background: rgba(0,0,0,0.05);
+            color: var(--primary-color);
+        }
+
+        label .toolbar-btn {
+            float: right;
+            font-size: 12px;
+            padding: 2px 6px;
+        }
+
+        /* 复制成功状态 */
+        .toolbar-btn.copied {
+            color: #2ecc71;
+        }
+
+        /* 添加图片预览样式 */
+        #image-preview-modal {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            touch-action: none; /* 防止触摸默认行为 */
+        }
+
+        #preview-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #preview-image {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+            transition: none;
+            user-select: none;
+            -webkit-user-drag: none;
+            will-change: transform; /* 优化性能 */
+        }
+
+        /* 底部控制栏 */
+        #image-preview-modal > div:last-child {
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        /* 聊天图片样式 */
+        .chat-image {
+            max-width: 200px;
+            max-height: 200px;
+            border-radius: 8px;
+            margin: 4px 0;
+            display: block;
+            transition: opacity 0.2s;
+            cursor: zoom-in;
+        }
+
+        .chat-image:hover {
+            opacity: 0.9;
+        }
+
+        /* 工具按钮样式 */
+        .toolbar-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 16px;
+            color: white;
+            opacity: 0.8;
+            transition: all 0.2s;
+        }
+
+        .toolbar-btn:hover {
+            opacity: 1;
+            background: rgba(255,255,255,0.1);
+        }
+
+        /* 移动端适配 */
+        @media (max-width: 768px) {
+            #preview-image {
+                max-width: 95%;
+                max-height: 80vh;
+            }
+            
+            #image-preview-modal > div:last-child {
+                bottom: 20px;
+                padding: 8px 15px;
+                font-size: 12px;
+                gap: 15px;
+            }
+        }
+
+        /* 添加分辨率信息显示样式 */
+        #res-info {
+            background: rgba(0, 122, 255, 0.1);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+
+        #res-info span {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+<!-- 主容器 -->
+<div id="app-container">
+    
+    <!-- 侧边栏 -->
+    <aside id="sidebar">
+        <div class="sidebar-header">
+            <span>WebRTC Chat</span>
+            <div id="conn-status" class="connection-status">未连接</div>
+        </div>
+        <div class="sidebar-menu">
+            <div class="menu-item active">
+                <span>💬</span> 会议室: <span id="room-id-display">room-1</span>
+            </div>
+            <div class="menu-item" id="btn-clear-msg">🗑️ 清空记录</div>
+        </div>
+        <div class="settings-trigger" id="btn-open-settings">
+            ⚙️ 连接设置
+        </div>
+        <div class="back-btn" style="position: absolute;right: 2px;top: 50%; background-color: #fff5;border-radius: 50%;width: 1.5em; height: 1.5em;font-size: 1em;" onclick="$('sidebar').classList.toggle('mobile-open')">👈</div>
+    </aside>
+
+    <!-- 主区域 -->
+    <main id="main-area">
+        <header class="chat-header">
+            <div class="chat-title">
+                <div class="back-btn" id="btn-back">←</div>
+                <span id="current-role-text">访客模式</span>
+            </div>
+            <div class="action-btns">
+                <button class="btn-icon" id="btn-video-call" title="发起视频通话">📹</button>
+            </div>
+        </header>
+
+        <!-- 消息列表 -->
+        <div id="message-list">
+            <div class="message other">欢迎！请打开两个标签页测试通讯。<br>1. 设置身份<br>2. 连接<br><br>支持富文本输入（粘贴图片）、大文件分片传输</div>
+        </div>
+
+        <!-- 底部富文本输入区 -->
+        <div class="input-area">
+            <div class="rich-editor-container">
+                <div id="rich-input" contenteditable="true" placeholder="输入消息..."></div>
+                <div class="editor-toolbar">
+                    <button class="toolbar-btn" id="btn-emoji" title="表情">😊</button>
+                    <button class="toolbar-btn" id="btn-image" title="发送图片">🖼️</button>
+                    <button class="toolbar-btn" id="btn-file" title="发送文件">📎</button>
+                </div>
+            </div>
+            <button class="btn-primary" id="btn-send">发送</button>
+        </div>
+    </main>
+</div>
+
+<!-- 设置面板 (弹出) -->
+<div class="modal-overlay" id="settings-modal">
+    <div class="modal">
+        <h3>连接设置</h3>
+        <div class="form-group">
+            <label>房间号 (需保持一致)</label>
+            <input type="text" id="setting-room" value="room-1">
+        </div>
+        <div class="form-group">
+            <label>信令服务器</label>
+            <input type="text" id="setting-server" value="">
+        </div>
+        <div class="form-group">
+            <label>我的角色</label>
+            <select id="setting-role">
+                <option value="initiator">发起者</option>
+                <option value="receiver">接收者</option>
+                <option value="initiator-manual">发起者 (手动)</option>
+                <option value="receiver-manual">接收者 (手动)</option>
+            </select>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-primary" id="btn-connect">开始连接</button>
+            <button class="btn-icon" id="btn-close-settings" style="color:#666">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- 视频设置/预览面板 (弹出) - 发送端用 -->
+<div class="modal-overlay" id="video-settings-modal">
+    <div class="modal">
+        <h3>视频设置</h3>
+        <div class="form-group">
+            <label>视频源</label>
+            <select id="vid-source">
+                <option value="camera-front">前置摄像头</option>
+                <option value="camera-back">后置摄像头</option>
+                <option value="screen">屏幕共享</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>分辨率</label>
+            <select id="vid-res">
+                <option value="auto">自动 (推荐)</option>
+                <option value="qvga">QVGA (320x240)</option>
+                <option value="vga">VGA (640x480)</option>
+                <option value="sd">SD (720x480)</option>
+                <option value="hd">HD (1280x720)</option>
+                <option value="fhd">FHD (1920x1080)</option>
+                <option value="qhd">QHD (2560x1440)</option>
+                <option value="4k">4K UHD (3840x2160)</option>
+                <option value="8k">8K UHD (7680x4320)</option>
+            </select>
+            <div id="res-info" style="font-size: 12px; color: #666; margin-top: 4px; display: none;">
+                当前: <span id="current-res">-</span>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>最大码率</label>
+            <input type="range" id="vid-bitrate" min="100" max="2000" step="100" value="500">
+            <div style="text-align:right; font-size:12px; color:#666"><span id="vid-bitrate-val">500</span> kbps</div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-primary" id="btn-start-video">开始通话</button>
+            <button class="btn-icon" id="btn-close-vid-settings" style="color:#666">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- 修改手动信令交换模态框（发起者） -->
+<div class="modal-overlay" id="manual-signal-modal">
+    <div class="modal" style="max-width: 600px; width: 95%;">
+        <h3>手动信令交换</h3>
+        <div class="form-group">
+            <label>我的 Offer (SDP + ICE) <button class="toolbar-btn" id="btn-copy-offer" title="复制" style="float:right; font-size:12px;">📋 复制</button></label>
+            <textarea id="manual-offer" readonly style="width: 100%; height: 120px; font-family: monospace; font-size: 12px; resize: vertical;" placeholder="点击「生成Offer」后，复制此内容发给对方"></textarea>
+            <button class="btn-primary" id="btn-gen-offer" style="margin-top: 8px; width: 100%;">生成 Offer</button>
+        </div>
+        <div class="form-group">
+            <label>对方的 Answer (粘贴到这里)</label>
+            <textarea id="manual-answer" style="width: 100%; height: 80px; font-family: monospace; font-size: 12px; resize: vertical;" placeholder="等待对方发送Answer，粘贴到此处"></textarea>
+        </div>
+        <div class="form-group">
+            <label>ICE 候选 (自动收集，可选)</label>
+            <textarea id="manual-ice" readonly style="width: 100%; height: 60px; font-family: monospace; font-size: 11px; resize: vertical;" placeholder="ICE候选将自动显示"></textarea>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-primary" id="btn-apply-answer">应用 Answer 并连接</button>
+            <button class="btn-icon" id="btn-close-manual" style="color:#666">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- 修改接收者手动模式模态框 -->
+<div class="modal-overlay" id="manual-receiver-modal">
+    <div class="modal" style="max-width: 600px; width: 95%;">
+        <h3>手动信令交换 (接收者)</h3>
+        <div class="form-group">
+            <label>对方的 Offer (粘贴到这里)</label>
+            <textarea id="manual-rcv-offer" style="width: 100%; height: 120px; font-family: monospace; font-size: 12px; resize: vertical;" placeholder="等待对方发送Offer，粘贴到此处"></textarea>
+            <button class="btn-primary" id="btn-apply-offer" style="margin-top: 8px; width: 100%;">应用 Offer 并生成 Answer</button>
+        </div>
+        <div class="form-group">
+            <label>我的 Answer (生成后复制给对方) <button class="toolbar-btn" id="btn-copy-answer" title="复制" style="float:right; font-size:12px;">📋 复制</button></label>
+            <textarea id="manual-rcv-answer" readonly style="width: 100%; height: 80px; font-family: monospace; font-size: 12px; resize: vertical;" placeholder="点击「应用Offer」后生成"></textarea>
+        </div>
+        <div class="form-group">
+            <label>ICE 候选 (自动收集) <button class="toolbar-btn" id="btn-copy-ice-rcv" title="复制" style="float:right; font-size:12px;">📋 复制</button></label>
+            <textarea id="manual-rcv-ice" readonly style="width: 100%; height: 60px; font-family: monospace; font-size: 11px; resize: vertical;" placeholder="ICE候选将自动显示"></textarea>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-icon" id="btn-close-manual-rcv" style="color:#666">关闭</button>
+        </div>
+    </div>
+</div>
+
+<!-- 替换原有的图片预览模态框 -->
+<div class="modal-overlay" id="image-preview-modal" style="background: rgba(0,0,0,0.95); cursor: grab;">
+    <div id="preview-container" style="position: relative; width: 100%; height: 100%; overflow: hidden; display: flex; justify-content: center; align-items: center;">
+        <img id="preview-image" src="" style="max-width: 90%; max-height: 90%; object-fit: contain; transition: none; user-select: none; -webkit-user-drag: none;">
+    </div>
+    <div style="position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); color: white; font-size: 14px; opacity: 0.9; z-index: 1001; display: flex; gap: 20px; align-items: center; background: rgba(0,0,0,0.5); padding: 10px 20px; border-radius: 20px;">
+        <span id="preview-filename" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">图片预览</span>
+        <span style="opacity: 0.5;">|</span>
+        <span id="zoom-level" style="min-width: 50px; text-align: center;">100%</span>
+        <button class="toolbar-btn" id="btn-reset-zoom" title="重置" style="color: white; font-size: 16px;">⟲</button>
+        <button class="toolbar-btn" id="btn-download-image" title="下载" style="color: white; font-size: 16px;">⬇</button>
+        <button class="toolbar-btn" id="btn-close-preview" title="关闭" style="color: white; font-size: 16px;">✕</button>
+    </div>
+</div>
+
+<!-- 文件上传 Input -->
+<input type="file" id="file-input" style="display:none">
+<input type="file" id="image-input" style="display:none" accept="image/*">
+
+<!-- 视频通话全屏容器 -->
+<div id="video-container" class="video-hidden">
+    <div class="video-window" id="video-window">
+        <div class="video-header" id="video-header">
+            <span class="video-title">视频通话</span>
+            <div class="video-window-controls">
+                <button class="window-btn" id="btn-minimize" title="最小化">🗕</button>
+                <button class="window-btn" id="btn-maximize" title="全屏">⛶</button>
+                <button class="window-btn close" id="btn-close-video" title="关闭">✕</button>
+            </div>
+        </div>
+        <div class="video-content" id="video-content">
+            <video id="remote-video" autoplay playsinline></video>
+            <video id="local-video" autoplay playsinline muted></video>
+        </div>
+        <div class="video-controls">
+            <button class="video-btn" id="btn-toggle-mute" title="静音">🎤</button>
+            <button class="video-btn hangup" id="btn-hangup" title="挂断">📞</button>
+        </div>
+        <div class="resize-handle" id="resize-handle"></div>
+    </div>
+</div>
+
+<!-- 提示框 -->
+<div id="toast">提示信息</div>
+
+<script>
+/**
+ * 核心逻辑：
+ * 1. SignalingSimulator: 简化版信令模拟器，仅提供get/set，通过定时轮询+变化检测实现listen功能
+ * 2. WebRTCManager: 管理 PeerConnection 和基础数据通道
+ * 3. FileTransferManager: 大文件分片传输管理器
+ * 4. UIController: 处理 DOM 和用户交互，支持富文本输入
+ */
+
+// --- 工具函数 ---
+const $ = (id) => document.getElementById(id);
+const uuid = () => Math.random().toString(36).substr(2, 9);
+const showToast = (msg) => {
+    const t = $('toast');
+    t.innerText = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+};
+
+let miurl='http://192.168.1.248:8080';
+let midata='';
+let misrc=$('mif');
+if(miurl){
+    // 监听来自 iframe 的消息
+    window.addEventListener('message', function(event) {
+        // 安全检查：验证消息来源（生产环境必须验证）
+        
+        console.log('收到 iframe 消息:', event.data);
+        console.log('来源:', event.origin);
+        
+        if (!event.origin.includes(miurl)) return;
+        // 处理接收到的数据
+        const data = event.data;
+        
+        if (data.success) {
+            console.log(data.messages);
+        } else {
+            console.log(data.error);
+        }
+    });
+}
+// --- 1. 简化版信令服务器模拟 (滑动窗口 + 自增ID + 轮询listen) ---
+const SignalingSimulator = {
+    prefix: 'webrtc_signal_',
+    server: miurl,
+    MAX_ENTRIES: 16, // 滑动窗口大小
+    pollTime:1000,
+    
+    // 存储轮询状态和回调
+    _pollInterval: null,
+    _callbacks: [],
+    _lastProcessedId: 0, // 上次处理的最大ID
+    _id:0,
+    _initialized: false, // 是否已初始化（用于首次加载历史数据）
+    _lastData:[],
+    _sendcache:[],
+
+    _update:async ()=>{
+        if(!SignalingSimulator.server)return null;
+        return fetch(SignalingSimulator.server)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.text();
+            })
+            .then(data => {
+                //console.log(data);
+                // 处理数据
+                
+                SignalingSimulator._lastData=JSON.parse(data).map(x=>JSON.parse(atob(x)));
+                if(!SignalingSimulator._initialized){
+                    const maxId = Math.max(...SignalingSimulator._lastData.map(e => e.id)) || -1;
+                    SignalingSimulator._id = SignalingSimulator._lastProcessedId = maxId;
+                    SignalingSimulator._initialized = true;
+                    for (let i = 0; i < SignalingSimulator._sendcache.length; i++) {
+                        SignalingSimulator._sendcache[i].id=++SignalingSimulator._lastProcessedId;
+                        console.log(JSON.stringify(SignalingSimulator._sendcache[i]));
+                        
+                        fetch(`${SignalingSimulator.server}?info="${btoa(JSON.stringify(SignalingSimulator._sendcache[i]))}"`);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+    }
+    ,
+    // 获取存储的窗口数据
+    _getWindow: () => {
+
+        if(SignalingSimulator.server){
+            SignalingSimulator._update();
+        }
+        if(SignalingSimulator.server){
+            return SignalingSimulator._lastData;
+        }
+        const raw = localStorage.getItem(SignalingSimulator.prefix + 'window');
+        return raw ? JSON.parse(raw) : [];
+    },
+    
+    // 保存窗口数据
+    _saveWindow: (windowData) => {
+        //console.log(`save:${JSON.stringify(windowData)}`);
+        if(miurl){
+            //misrc.src=`${miurl}?info=${JSON.stringify(windowData)}`;
+            
+        
+        }
+        else
+            localStorage.setItem(SignalingSimulator.prefix + 'window', JSON.stringify(windowData));
+    },
+    
+    // 仅保留get/set，set使用滑动窗口
+    get: (key) => {
+        console.log(`get:${key}`);
+        if(SignalingSimulator.server){
+            fetch(SignalingSimulator.server)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log(data);
+                // 处理数据
+                SignalingSimulator._lastData=data;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+        
+        // 为了兼容旧代码，从窗口中查找指定key的最新值
+        const windowData = SignalingSimulator._getWindow();
+        // 倒序查找最新的匹配条目
+        for (let i = windowData.length - 1; i >= 0; i--) {
+            if (windowData[i].key === key) {
+                return windowData[i].value;
+            }
+        }
+        return null;
+    },
+    
+    set: (key, value) => {
+        console.log(`set:${key}`);
+        const windowData = SignalingSimulator._getWindow();
+        
+        // 创建新条目，带自增ID
+        const entry = {
+            id: ++SignalingSimulator._lastProcessedId,
+            key: key,
+            value: value,
+        };
+        
+        if(SignalingSimulator.server){
+            if(SignalingSimulator._initialized){
+                console.log(JSON.stringify(entry));
+                fetch(`${SignalingSimulator.server}?info="${btoa(JSON.stringify(entry))}"`);
+            }
+            else{
+                SignalingSimulator._sendcache.push(entry);
+            }
+            return entry.id; // 返回ID供参考
+        }
+        
+        // 添加到窗口
+        windowData.entries.push(entry);
+        
+        // 保持滑动窗口大小（只保留最近16条）
+        if (windowData.entries.length > SignalingSimulator.MAX_ENTRIES) {
+            windowData.entries = windowData.entries.slice(-SignalingSimulator.MAX_ENTRIES);
+        }
+        
+        SignalingSimulator._saveWindow(windowData);
+        return entry.id; // 返回ID供参考
+    },
+    
+    clear: (key) => {
+        const windowData = SignalingSimulator._getWindow();
+        windowData.entries = windowData.entries.filter(e => e.key !== key);
+        SignalingSimulator._saveWindow(windowData);
+    },
+    
+    // 通过定时轮询模拟listen功能，逐条判断新数据
+    listen: (callback) => {
+        SignalingSimulator._callbacks.push(callback);
+        
+        if (SignalingSimulator._pollInterval) return;
+        
+        // 初始化：获取当前最大ID作为基准，不触发历史回调
+        const windowData = SignalingSimulator._getWindow();
+        if (windowData.entries.length > 0) {
+            // 找到当前最大的ID作为lastProcessedId
+            const maxId = Math.max(...windowData.entries.map(e => e.id));
+            SignalingSimulator._lastProcessedId = maxId;
+            SignalingSimulator._initialized = true;
+        }
+        
+        // 启动定时轮询，每500ms检查一次
+        SignalingSimulator._pollInterval = setInterval(() => {
+            const windowData = SignalingSimulator._getWindow();
+            if(!SignalingSimulator._initialized)return;
+            
+            // 找出所有新条目（ID大于lastProcessedId）
+            const newEntries = windowData.filter(e => e.id > SignalingSimulator._lastProcessedId);
+            
+            // 按ID排序，确保顺序处理
+            newEntries.sort((a, b) => a.id - b.id);
+            if(newEntries.length>0)
+                console.log(newEntries);
+            
+            // 逐条处理新数据
+            newEntries.forEach(entry => {
+                // 更新lastProcessedId
+                SignalingSimulator._lastProcessedId = entry.id;
+                
+                // 触发回调，保持与原listen相同的调用签名 (key, value)
+                SignalingSimulator._callbacks.forEach(cb => {
+                    try {
+                        cb(entry.key, entry.value);
+                    } catch (e) {
+                        console.error('Signaling callback error:', e);
+                    }
+                });
+            });
+        }, SignalingSimulator.pollTime);
+        
+        // 返回取消监听的函数
+        return () => {
+            const index = SignalingSimulator._callbacks.indexOf(callback);
+            if (index > -1) {
+                SignalingSimulator._callbacks.splice(index, 1);
+            }
+            if (SignalingSimulator._callbacks.length === 0 && SignalingSimulator._pollInterval) {
+                clearInterval(SignalingSimulator._pollInterval);
+                SignalingSimulator._pollInterval = null;
+                SignalingSimulator._initialized = false;
+                SignalingSimulator._lastProcessedId = 0;
+            }
+        };
+    },
+    
+    // 停止所有轮询（清理用）
+    stopPolling: () => {
+        if (SignalingSimulator._pollInterval) {
+            clearInterval(SignalingSimulator._pollInterval);
+            SignalingSimulator._pollInterval = null;
+        }
+        SignalingSimulator._callbacks = [];
+        SignalingSimulator._initialized = false;
+        SignalingSimulator._lastProcessedId = 0;
+    },
+    
+    // 调试：查看当前窗口状态
+    debug: () => {
+        const windowData = SignalingSimulator._getWindow();
+        console.log('SignalingSimulator Debug:', {
+            nextId: windowData.nextId,
+            entriesCount: windowData.entries.length,
+            entries: windowData.entries,
+            lastProcessedId: SignalingSimulator._lastProcessedId
+        });
+        return windowData;
+    }
+};
+// --- 2. 大文件分片传输管理器 ---
+// 修改 FileTransferManager 类
+// 修改 FileTransferManager 类 - 修复版
+class FileTransferManager {
+    constructor(dataChannel) {
+        this.dc = dataChannel;
+        this.chunkSize = 64 * 1024; // 增大到64KB，减少分片数量
+        this.transfers = new Map();
+        this.receivedChunks = new Map();
+        this.pendingFiles = [];
+        this.isSending = false; // 发送锁，避免并发
+    }
+
+    setDataChannel(dc) {
+        this.dc = dc;
+        // 处理等待中的文件
+        while (this.pendingFiles.length > 0) {
+            const { file, transferId, onProgress } = this.pendingFiles.shift();
+            this.startFileTransfer(file, transferId, onProgress);
+        }
+    }
+
+    // 发送文件 - 修复版
+    async sendFile(file, onProgress = null) {
+        const transferId = uuid();
+        
+        // 如果通道未就绪，先缓存
+        if (!this.dc || this.dc.readyState !== 'open') {
+            console.log('通道未就绪，缓存文件:', file.name);
+            this.pendingFiles.push({ file, transferId, onProgress });
+            return transferId;
+        }
+        
+        // 启动传输（不等待完成）
+        this.startFileTransfer(file, transferId, onProgress);
+        return transferId;
+    }
+
+    // 实际开始文件传输 - 使用发送队列避免并发
+    async startFileTransfer(file, transferId, onProgress) {
+        // 如果正在发送其他文件，加入队列等待
+        if (this.isSending) {
+            console.log('已有文件正在传输，加入队列:', file.name);
+            this.pendingFiles.push({ file, transferId, onProgress });
+            return transferId;
+        }
+
+        this.isSending = true;
+        const totalChunks = Math.ceil(file.size / this.chunkSize);
+        
+        console.log(`开始传输文件: ${file.name}, 大小: ${file.size}, 分片: ${totalChunks}片, 每片: ${this.chunkSize/1024}KB`);
+        
+        // 存储传输信息
+        this.transfers.set(transferId, {
+            file: file,
+            totalChunks: totalChunks,
+            sentChunks: 0,
+            onProgress: onProgress,
+            startTime: Date.now()
+        });
+        
+        // 发送文件元数据
+        const metadata = {
+            type: 'file-start',
+            transferId: transferId,
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            totalChunks: totalChunks,
+            timestamp: Date.now()
+        };
+        
+        try {
+            this.dc.send(JSON.stringify(metadata));
+            console.log('已发送文件元数据');
+        } catch (e) {
+            console.error('发送元数据失败:', e);
+            showToast('文件传输失败: 通道未就绪');
+            this.transfers.delete(transferId);
+            this.isSending = false;
+            this.processNextFile(); // 处理队列中的下一个
+            return transferId;
+        }
+        
+        // 顺序发送所有分片
+        try {
+            await this.sendAllChunks(transferId, file, totalChunks);
+        } catch (e) {
+            console.error('传输过程出错:', e);
+        } finally {
+            this.isSending = false;
+            this.processNextFile(); // 处理队列中的下一个文件
+        }
+        
+        return transferId;
+    }
+
+    // 发送所有分片
+    async sendAllChunks(transferId, file, totalChunks) {
+        const transfer = this.transfers.get(transferId);
+        if (!transfer) return;
+        
+        // 分片头部大小：4字节(transferId长度) + transferId + 4字节(索引) + 4字节(数据长度) = 12 + id长度
+        const transferIdBytes = new TextEncoder().encode(transferId);
+        
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+            if (!this.transfers.has(transferId)) {
+                console.log('传输已取消:', transferId);
+                throw new Error('传输已取消');
+            }
+            
+            const offset = chunkIndex * this.chunkSize;
+            const chunk = file.slice(offset, offset + this.chunkSize);
+            const arrayBuffer = await chunk.arrayBuffer();
+            
+            // 构建二进制头部: [transferId长度(4)][transferId][索引(4)][数据长度(4)]
+            const headerSize = 4 + transferIdBytes.length + 4 + 4;
+            const totalSize = headerSize + arrayBuffer.byteLength;
+            const binaryData = new ArrayBuffer(totalSize);
+            const view = new DataView(binaryData);
+            const uint8View = new Uint8Array(binaryData);
+            
+            // 写入头部
+            let pos = 0;
+            view.setUint32(pos, transferIdBytes.length, true); // transferId长度
+            pos += 4;
+            uint8View.set(transferIdBytes, pos); // transferId
+            pos += transferIdBytes.length;
+            view.setUint32(pos, chunkIndex, true); // 分片索引
+            pos += 4;
+            view.setUint32(pos, arrayBuffer.byteLength, true); // 数据长度
+            pos += 4;
+            
+            // 写入实际数据
+            uint8View.set(new Uint8Array(arrayBuffer), pos);
+            
+            // 简单的流控
+            if (chunkIndex > 0 && chunkIndex % 10 === 0) {
+                await this.simpleFlowControl();
+            }
+            
+            // 直接发送二进制数据
+            this.dc.send(binaryData);
+            transfer.sentChunks++;
+            
+            const progress = Math.round((transfer.sentChunks / totalChunks) * 100);
+            this.updateProgress(transferId, progress, true);
+            
+            //if (progress % 20 === 0 || chunkIndex === totalChunks - 1) {
+            //    const elapsed = Date.now() - transfer.startTime;
+            //    const speed = (transfer.sentChunks * this.chunkSize / 1024 / 1024) / (elapsed / 1000);
+            //    //console.log(`发送进度: ${progress}% | 速度: ${speed.toFixed(2)} MB/s`);
+            //}
+        }
+        
+        // 发送完成信号（JSON格式）
+        this.dc.send(JSON.stringify({
+            type: 'file-end',
+            transferId: transferId
+        }));
+        
+        const duration = Date.now() - transfer.startTime;
+        const speed = (file.size / 1024 / 1024) / (duration / 1000);
+        console.log(`✓ 传输完成: ${transferId} | 耗时: ${duration}ms | 平均速度: ${speed.toFixed(2)} MB/s`);
+        
+        this.transfers.delete(transferId);
+    }
+
+    // 简化的流控 - 只在缓冲区过大时暂停
+    simpleFlowControl() {
+        return new Promise((resolve) => {
+            if (this.dc.bufferedAmount < 256 * 1024) { // 256KB阈值
+                resolve();
+                return;
+            }
+            
+            //console.log('缓冲区较高，短暂等待...');
+            const check = () => {
+                if (this.dc.bufferedAmount < 128 * 1024) { // 降到128KB继续
+                    resolve();
+                } else {
+                    setTimeout(check, 5);
+                }
+            };
+            setTimeout(check, 10);
+            
+            // 超时保护
+            setTimeout(() => {
+                //console.warn('流控超时，强制继续');
+                resolve();
+            }, 1000);
+        });
+    }
+
+    // 处理队列中的下一个文件
+    processNextFile() {
+        if (this.pendingFiles.length > 0) {
+            const next = this.pendingFiles.shift();
+            console.log('开始处理队列中的下一个文件:', next.file.name);
+            setTimeout(() => {
+                this.startFileTransfer(next.file, next.transferId, next.onProgress);
+            }, 100); // 短暂延迟，让通道恢复
+        }
+    }
+
+    updateProgress(transferId, progress, isUpload) {
+        const transfer = this.transfers.get(transferId);
+        if (transfer && transfer.onProgress) {
+            transfer.onProgress(progress);
+        }
+        UI.updateFileProgress(transferId, progress, isUpload);
+    }
+
+    // 处理接收到的文件数据 - 优化版
+    handleFileData(data) {
+        if (data.type === 'file-start') {
+            console.log('📥 接收文件开始:', data.fileName, `(${data.totalChunks}片)`);
+            
+            this.receivedChunks.set(data.transferId, {
+                chunks: new Array(data.totalChunks),
+                receivedCount: 0,
+                metadata: data,
+                startTime: Date.now()
+            });
+            
+            UI.renderFileMessage('other', {
+                name: data.fileName,
+                size: data.fileSize,
+                url: null
+            }, data.transferId, false);
+            
+            UI.updateFileProgress(data.transferId, 0, false);
+            showToast(`开始接收: ${data.fileName}`);
+            
+        } else if (data.type === 'file-end') {
+            const transfer = this.receivedChunks.get(data.transferId);
+            if (!transfer) return;
+            
+            console.log('📥 文件接收完成:', transfer.metadata.fileName);
+            
+            // 检查完整性
+            const missing = [];
+            for (let i = 0; i < transfer.metadata.totalChunks; i++) {
+                if (!transfer.chunks[i]) missing.push(i);
+            }
+            
+            if (missing.length > 0) {
+                console.error('❌ 缺少分片:', missing);
+                showToast('文件接收失败: 数据不完整');
+                this.receivedChunks.delete(data.transferId);
+                return;
+            }
+            
+            // 合并文件（二进制数据直接合并）
+            try {
+                const blob = new Blob(transfer.chunks, { type: transfer.metadata.fileType });
+                const url = URL.createObjectURL(blob);
+                
+                UI.completeFileTransfer(data.transferId, {
+                    url: url,
+                    name: transfer.metadata.fileName,
+                    size: transfer.metadata.fileSize
+                });
+                
+                const duration = Date.now() - transfer.startTime;
+                const speed = (transfer.metadata.fileSize / 1024 / 1024) / (duration / 1000);
+                showToast(`✓ 接收完成: ${transfer.metadata.fileName} (${speed.toFixed(1)} MB/s)`);
+                
+            } catch (e) {
+                console.error('合并文件失败:', e);
+                showToast('文件合并失败');
+            }
+            
+            this.receivedChunks.delete(data.transferId);
+        }
+    }
+
+    handleBinaryChunk(arrayBuffer) {
+        try {
+            const view = new DataView(arrayBuffer);
+            const uint8View = new Uint8Array(arrayBuffer);
+            
+            // 解析头部
+            let pos = 0;
+            const transferIdLength = view.getUint32(pos, true);
+            pos += 4;
+            
+            const transferIdBytes = uint8View.slice(pos, pos + transferIdLength);
+            const transferId = new TextDecoder().decode(transferIdBytes);
+            pos += transferIdLength;
+            
+            const chunkIndex = view.getUint32(pos, true);
+            pos += 4;
+            
+            const dataLength = view.getUint32(pos, true);
+            pos += 4;
+            
+            // 提取实际数据
+            const chunkData = arrayBuffer.slice(pos, pos + dataLength);
+            
+            // 查找对应的传输任务
+            const transfer = this.receivedChunks.get(transferId);
+            if (!transfer) {
+                console.warn('收到未知传输的分片:', transferId);
+                return;
+            }
+            
+            // 存储分片
+            transfer.chunks[chunkIndex] = chunkData;
+            transfer.receivedCount++;
+            
+            const progress = Math.round((transfer.receivedCount / transfer.metadata.totalChunks) * 100);
+            
+            // 更新进度（每5%或首片）
+            if (progress % 5 === 0 || chunkIndex === 0 || progress === 100) {
+                UI.updateFileProgress(transferId, progress, false);
+            }
+            
+        } catch (e) {
+            console.error('解析二进制分片失败:', e);
+        }
+    }
+
+    cancelTransfer(transferId) {
+        this.transfers.delete(transferId);
+        // 从队列中移除
+        this.pendingFiles = this.pendingFiles.filter(item => item.transferId !== transferId);
+    }
+}
+// --- 3. WebRTC 管理器 ---
+class WebRTCManager {
+    constructor(roomId, role, onBaseChannelOpen, onTrack) {
+        this.roomId = roomId;
+        this.role = role;
+        this.isManualMode = role.includes('manual');
+        this.pc = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        
+        this.baseChannel = null;
+        this.dataChannels = {};
+        this.fileTransferManager = null;
+        this.negotiating = false;
+        this.unlisten = null;
+        this.iceCandidates = []; // 手动模式下存储ICE候选
+
+        // 绑定事件
+        this.pc.onicecandidate = (e) => this.handleIceCandidate(e);
+        this.pc.onconnectionstatechange = () => {
+            const state = this.pc.connectionState;
+            console.log('Connection State:', state);
+            if(state === 'connected') {
+                $('conn-status').innerText = '已连接';
+                $('conn-status').classList.add('connected');
+                const roleText = this.role === 'initiator-manual' ? '发起者(手动)' : 
+                                this.role === 'receiver-manual' ? '接收者(手动)' : 
+                                this.role === 'initiator' ? '发起者' : '接收者';
+                $('current-role-text').innerText = roleText + ' (在线)';
+            }
+        };
+        
+        this.pc.ondatachannel = (e) => {
+            if (e.channel.label === '__signaling__') {
+                this.setupBaseChannel(e.channel);
+            } else {
+                this.setupDataChannel(e.channel);
+            }
+        };
+
+        this.pc.ontrack = onTrack;
+
+        // 手动模式下不自动创建通道
+        if (this.role === 'initiator' || this.role === 'initiator-manual') {
+            const dc = this.pc.createDataChannel('__signaling__', { ordered: true });
+            this.setupBaseChannel(dc);
+        }
+
+        this.onBaseChannelOpen = onBaseChannelOpen;
+
+        // 非手动模式才开启信令监听
+        if (!this.isManualMode) {
+            this.unlisten = SignalingSimulator.listen((key, val) => this.handleSignal(key, val));
+        }
+    }
+
+    // 设置基础数据通道 (用于后续信令)
+    setupBaseChannel(channel) {
+        this.baseChannel = channel;
+        this.baseChannel.onopen = () => {
+            console.log('基础信令通道已打通');
+            if (this.onBaseChannelOpen) this.onBaseChannelOpen(this.baseChannel);
+        };
+        this.baseChannel.onmessage = (e) => this.handleInnerSignaling(JSON.parse(e.data));
+    }
+
+    // 处理内部信令 (通过基础通道传输的 JSON 指令)
+    handleInnerSignaling(data) {
+        console.log('内部信令收到:', data);
+        if (data.type === 'request-channel') {
+            this.createDataChannel(data.label);
+        } else if (data.type === 'offer-video') {
+            this.handleVideoOffer(data.sdp, data.isScreenShare);
+        } else if (data.type === 'answer-video') {
+            this.handleVideoAnswer(data.sdp);
+        } else if (data.type === 'ice-candidate') {
+            this.pc.addIceCandidate(data.candidate).catch(e => console.error(e));
+        } else if (data.type === 'video-closed') {
+            // 对方关闭了视频
+            UI.handleRemoteVideoClosed();
+        }
+    }
+
+    
+
+    // 创建业务数据通道
+    createDataChannel(label) {
+        if (this.dataChannels[label]) return;
+
+        const dc = this.pc.createDataChannel(label, {
+            ordered: true,
+            binaryType: 'arraybuffer'  // 关键：设置二进制类型
+        });
+        this.setupDataChannel(dc);
+        
+        // 告诉对方我准备好了
+        if (this.baseChannel && this.baseChannel.readyState === 'open') {
+            this.baseChannel.send(JSON.stringify({ type: 'channel-ready', label: label }));
+        }
+    }
+
+    setupDataChannel(dc) {
+        this.dataChannels[dc.label] = dc;
+        // 设置背压控制
+        dc.bufferedAmountLowThreshold = 65536; // 64KB
+        
+        // 消息分片缓存移到外部，避免每次重置
+        const messageChunks = new Map();
+        
+        dc.onopen = () => {
+            console.log('业务通道已建立:', dc.label);
+            showToast(`通道 ${dc.label} 就绪`);
+            
+            // 触发 UI 更新
+            if (dc.label === 'chat') {
+                UI.chatReady = true;
+            }
+            
+            // 文件通道就绪时，设置到FileTransferManager
+            if (dc.label === 'file') {
+                // 只创建一次FileTransferManager
+                if (!this.fileTransferManager) {
+                    this.fileTransferManager = new FileTransferManager(dc);
+                    console.log('文件传输管理器已创建');
+                } else {
+                    // 更新通道引用
+                    this.fileTransferManager.setDataChannel(dc);
+                }
+            }
+        };
+        
+        // 只赋值一次 onmessage，统一处理所有消息类型
+        dc.onmessage = (e) => {
+
+            if (e.data instanceof ArrayBuffer) {
+                if (this.fileTransferManager) {
+                    this.fileTransferManager.handleBinaryChunk(e.data);
+                }
+                return;
+            }
+
+            const data = JSON.parse(e.data);
+            
+            if (dc.label === 'chat') {
+                // 处理分片消息
+                if (data.type === 'rich-text-start') {
+                    messageChunks.set(data.messageId, {
+                        chunks: new Array(data.totalChunks),
+                        receivedCount: 0,
+                        totalChunks: data.totalChunks
+                    });
+                } else if (data.type === 'rich-text-chunk') {
+                    const msg = messageChunks.get(data.messageId);
+                    if (msg) {
+                        msg.chunks[data.index] = data.data;
+                        msg.receivedCount++;
+                    }
+                } else if (data.type === 'rich-text-end') {
+                    const msg = messageChunks.get(data.messageId);
+                    if (msg) {
+                        // 重组消息
+                        const contentStr = msg.chunks.join('');
+                        try {
+                            const content = JSON.parse(contentStr);
+                            UI.renderRichMessage('other', content);
+                        } catch (e) {
+                            console.error('重组消息失败:', e);
+                        }
+                        messageChunks.delete(data.messageId);
+                    }
+                } else if (data.type === 'rich-text') {
+                    // 普通消息（未分片）
+                    UI.renderRichMessage('other', data.content);
+                } else {
+                    // 兼容旧格式纯文本消息
+                    UI.renderMessage('other', data.text, 'text');
+                }
+            } else if (dc.label === 'file' && this.fileTransferManager) {
+                this.fileTransferManager.handleFileData(data);
+            }
+        };
+    }
+
+    // --- 核心信令逻辑 (通过 LocalStorage + 轮询listen) ---
+    // 仅用于初始建立连接 SDP 交换
+    async startConnection() {
+        if (this.role === 'initiator') {
+            const offer = await this.pc.createOffer();
+            await this.pc.setLocalDescription(offer);
+            SignalingSimulator.set(`${this.roomId}_offer`, { sdp: offer });
+        }
+    }
+
+    async handleSignal(key, val) {
+        if (!val) return;
+        console.log(`收到信令[${key}]:`, val);
+        
+        if (key === `${this.roomId}_offer` && this.role === 'receiver') {
+            await this.pc.setRemoteDescription(new RTCSessionDescription(val.sdp));
+            const answer = await this.pc.createAnswer();
+            await this.pc.setLocalDescription(answer);
+            SignalingSimulator.set(`${this.roomId}_answer`, { sdp: answer });
+        }
+
+        if (key === `${this.roomId}_answer` && this.role === 'initiator') {
+            await this.pc.setRemoteDescription(new RTCSessionDescription(val.sdp));
+        }
+
+        // 初始阶段 ICE 候选也可以通过 LS 交换，之后走 Base Channel
+        if (key === `${this.roomId}_ice` && val.candidate) {
+            try {
+                await this.pc.addIceCandidate(val.candidate);
+            } catch(e) { console.error(e); }
+        }
+    }
+
+    // 修改 ICE 处理，支持手动模式
+    handleIceCandidate(e) {
+        if (e.candidate) {
+            this.iceCandidates.push(e.candidate);
+            
+            // 更新手动模式的ICE显示
+            if (this.isManualMode) {
+                const iceText = this.role === 'initiator-manual' ? 'manual-ice' : 'manual-rcv-ice';
+                const iceField = $(iceText);
+                if (iceField) {
+                    iceField.value = JSON.stringify(this.iceCandidates);
+                }
+            }
+            
+            // 如果 Base Channel 已通，通过 Base Channel 发送 ICE
+            if (this.baseChannel && this.baseChannel.readyState === 'open') {
+                this.baseChannel.send(JSON.stringify({ type: 'ice-candidate', candidate: e.candidate }));
+            } else if (!this.isManualMode) {
+                // 否则通过 LS 发送（仅自动模式）
+                SignalingSimulator.set(`${this.roomId}_ice`, { candidate: e.candidate });
+            }
+        }
+    }
+
+    // 手动模式：生成 Offer
+    async generateManualOffer() {
+        const offer = await this.pc.createOffer();
+        await this.pc.setLocalDescription(offer);
+        
+        // 等待ICE收集（简单实现，实际可能需要更完善的收集逻辑）
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const offerData = {
+            sdp: this.pc.localDescription,
+            ice: this.iceCandidates
+        };
+        
+        return JSON.stringify(offerData);
+    }
+
+    // 手动模式：应用 Answer
+    async applyManualAnswer(answerJson) {
+        try {
+            const answerData = JSON.parse(answerJson);
+            await this.pc.setRemoteDescription(new RTCSessionDescription(answerData.sdp));
+            
+            // 添加对方的ICE候选
+            if (answerData.ice) {
+                for (const candidate of answerData.ice) {
+                    await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+                }
+            }
+            
+            showToast('Answer 已应用，连接中...');
+            $('manual-signal-modal').classList.remove('open');
+            
+            // 启动通道准备
+            if (this.onBaseChannelOpen && this.baseChannel) {
+                setTimeout(() => this.onBaseChannelOpen(this.baseChannel), 500);
+            }
+        } catch(e) {
+            console.error(e);
+            showToast('应用 Answer 失败: ' + e.message);
+        }
+    }
+
+    // 手动模式：应用 Offer 并生成 Answer
+    async applyManualOfferAndCreateAnswer(offerJson) {
+        try {
+            const offerData = JSON.parse(offerJson);
+            await this.pc.setRemoteDescription(new RTCSessionDescription(offerData.sdp));
+            
+            // 添加对方的ICE候选
+            if (offerData.ice) {
+                for (const candidate of offerData.ice) {
+                    await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+                }
+            }
+            
+            const answer = await this.pc.createAnswer();
+            await this.pc.setLocalDescription(answer);
+            
+            // 等待ICE收集
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            const answerData = {
+                sdp: this.pc.localDescription,
+                ice: this.iceCandidates
+            };
+            
+            return JSON.stringify(answerData);
+        } catch(e) {
+            console.error(e);
+            showToast('应用 Offer 失败: ' + e.message);
+            throw e;
+        }
+    }
+
+    // 修改 WebRTCManager 中的 startVideoCall 支持屏幕共享
+    async startVideoCall(constraints, isScreenShare = false, isAutoRes = false) {
+        try {
+            let stream;
+            if (isScreenShare) {
+                stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+                
+                // 获取实际设置
+                const track = stream.getVideoTracks()[0];
+                const settings = track.getSettings();
+                console.log('屏幕共享实际分辨率:', settings.width, 'x', settings.height);
+                
+                // 监听共享结束
+                track.onended = () => {
+                    UI.stopVideoCall();
+                };
+                
+                // 如果是自动分辨率，更新约束以匹配实际分辨率（用于后续重协商）
+                if (isAutoRes && this.pc) {
+                    const sender = this.pc.getSenders().find(s => 
+                        s.track && s.track.kind === 'video'
+                    );
+                    if (sender) {
+                        const params = sender.getParameters();
+                        if (!params.encodings) params.encodings = [{}];
+                        // 根据实际分辨率设置合适的码率
+                        const pixels = settings.width * settings.height;
+                        let suggestedBitrate = 1000000; // 默认1Mbps
+                        if (pixels > 7680 * 4320) suggestedBitrate = 40000000; // 8K
+                        else if (pixels > 3840 * 2160) suggestedBitrate = 20000000; // 4K
+                        else if (pixels > 2560 * 1440) suggestedBitrate = 10000000; // QHD
+                        else if (pixels > 1920 * 1080) suggestedBitrate = 5000000; // FHD
+                        else if (pixels > 1280 * 720) suggestedBitrate = 2500000; // HD
+                        
+                        params.encodings[0].maxBitrate = suggestedBitrate;
+                        sender.setParameters(params).catch(e => console.log('更新码率失败', e));
+                    }
+                }
+            } else {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                
+                // 获取实际设置
+                const track = stream.getVideoTracks()[0];
+                const settings = track.getSettings();
+                console.log('摄像头实际分辨率:', settings.width, 'x', settings.height);
+            }
+            
+            UI.showLocalVideo(stream);
+            this.localStream = stream;
+            
+            // 添加轨道
+            stream.getTracks().forEach(track => this.pc.addTrack(track, stream));
+            
+            // 使用 Base Channel 进行视频 Offer
+            const offer = await this.pc.createOffer();
+            await this.pc.setLocalDescription(offer);
+            
+            if (this.baseChannel && this.baseChannel.readyState === 'open') {
+                this.baseChannel.send(JSON.stringify({ 
+                    type: 'offer-video', 
+                    sdp: offer,
+                    isScreenShare: isScreenShare,
+                    isAutoRes: isAutoRes
+                }));
+            }
+            
+            return stream;
+        } catch(e) {
+            console.error('启动视频失败:', e);
+            throw e;
+        }
+    }
+
+    async handleVideoOffer(sdp, isScreenShare = false, isAutoRes = false) {
+        UI.showVideoContainer();
+        showToast(isScreenShare ? '收到屏幕共享请求...' : '收到视频通话请求...');
+        
+        // 接收端也开启视频
+        try {
+            let stream;
+            if (isScreenShare) {
+                // 屏幕共享接收端不需要开启自己的屏幕
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            } else {
+                // 视频通话接收端开启摄像头，尽量匹配对方分辨率
+                const constraints = isAutoRes ? {
+                    video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
+                    audio: true
+                } : { video: true, audio: true };
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+            }
+            
+            UI.showLocalVideo(stream);
+            this.localStream = stream;
+            stream.getTracks().forEach(track => this.pc.addTrack(track, stream));
+            
+            // 获取实际分辨率
+            const settings = stream.getVideoTracks()[0].getSettings();
+            if (isAutoRes) {
+                $('current-res').innerText = `${settings.width}x${settings.height}`;
+                $('res-info').style.display = 'block';
+            }
+        } catch(e) { 
+            console.warn('接收端无法开启视频:', e); 
+        }
+
+        await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await this.pc.createAnswer();
+        await this.pc.setLocalDescription(answer);
+        
+        if (this.baseChannel && this.baseChannel.readyState === 'open') {
+            this.baseChannel.send(JSON.stringify({ type: 'answer-video', sdp: answer }));
+        }
+        
+        // 更新UI状态
+        $('btn-video-call').classList.add('active');
+        $('btn-video-call').title = '结束视频通话';
+        this.isVideoActive = true;
+    }
+
+    async handleVideoAnswer(sdp) {
+        await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        showToast('通话已连接');
+    }
+
+    // 挂断
+    hangup() {
+        // 停止所有本地轨道
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => {
+                track.stop();
+                console.log('轨道已停止:', track.kind);
+            });
+            this.localStream = null;
+        }
+        
+        // 移除发送器
+        const senders = this.pc.getSenders();
+        senders.forEach(sender => {
+            if (sender.track) {
+                sender.track.stop();
+                this.pc.removeTrack(sender);
+            }
+        });
+        
+        // 取消信令监听
+        if (this.unlisten) {
+            this.unlisten();
+            this.unlisten = null;
+        }
+        
+        UI.hideVideoContainer();
+        this.isVideoActive = false;
+        
+        // 通知对方视频已关闭
+        if (this.baseChannel && this.baseChannel.readyState === 'open') {
+            this.baseChannel.send(JSON.stringify({ type: 'video-closed' }));
+        }
+    }
+}
+const MAX_MESSAGE_SIZE = 60 * 1024; // 60KB，留余量
+// --- 4. UI 控制器 ---
+const UI = {
+    chatReady: false,
+    webrtc: null,
+    config: {
+        roomId: 'room-1',
+        role: 'initiator'
+    },
+    fileProgressMap: new Map(),
+    currentPreviewSrc: null,
+    previewState: {
+        scale: 1,
+        translateX: 0,
+        translateY: 0,
+        isDragging: false,
+        startX: 0,
+        startY: 0,
+        lastX: 0,
+        lastY: 0
+    },
+
+    videoWindowState: {
+        isDragging: false,
+        isResizing: false,
+        startX: 0,
+        startY: 0,
+        startWidth: 0,
+        startHeight: 0,
+        startLeft: 0,
+        startTop: 0,
+        isMaximized: false,
+        scale: 1
+    },
+
+    init() {
+        this.bindEvents();
+        this.setupRichEditor();
+        $('setting-server').value = localStorage.getItem('SignalingServer');
+    },
+
+    setupRichEditor() {
+        const editor = $('rich-input');
+        
+        // 处理粘贴事件（支持图片+文字）
+        editor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const clipboardData = e.clipboardData || window.clipboardData;
+            
+            // 优先处理图片
+            const items = clipboardData.items;
+            let hasImage = false;
+            
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    const blob = items[i].getAsFile();
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        this.insertImageToEditor(event.target.result);
+                    };
+                    reader.readAsDataURL(blob);
+                    hasImage = true;
+                    break;
+                }
+            }
+            
+            // 如果没有图片，处理文本
+            if (!hasImage) {
+                const text = clipboardData.getData('text/plain');
+                document.execCommand('insertText', false, text);
+            }
+        });
+        
+        // 处理拖拽图片
+        editor.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const files = e.dataTransfer.files;
+            for (let file of files) {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        this.insertImageToEditor(event.target.result);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+        });
+        
+        // 阻止拖拽默认行为
+        editor.addEventListener('dragover', (e) => e.preventDefault());
+        
+        // 回车发送，Shift+回车换行
+        editor.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.sendRichMessage();
+            }
+        });
+    },
+
+    insertImageToEditor(dataUrl) {
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        img.style.maxWidth = '150px';
+        img.style.maxHeight = '150px';
+        
+        const selection = window.getSelection();
+        const range = selection.getRangeAt(0);
+        range.insertNode(img);
+        range.collapse(false);
+        
+        // 插入换行
+        const br = document.createElement('br');
+        range.insertNode(br);
+        
+        selection.removeAllRanges();
+        selection.addRange(range);
+    },
+
+    bindEvents() {
+        // 侧边栏与设置
+        $('btn-open-settings').onclick = () => $('settings-modal').classList.add('open');
+        $('btn-close-settings').onclick = () => $('settings-modal').classList.remove('open');
+        $('btn-connect').onclick = () => this.connect();
+        $('btn-back').onclick = () => $('sidebar').classList.toggle('mobile-open');
+        
+        // 发送按钮
+        $('btn-send').onclick = () => this.sendRichMessage();
+        
+        // 清空
+        $('btn-clear-msg').onclick = () => $('message-list').innerHTML = '';
+
+        // 图片按钮
+        $('btn-image').onclick = () => $('image-input').click();
+        $('image-input').onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    this.insertImageToEditor(event.target.result);
+                };
+                reader.readAsDataURL(file);
+            }
+        };
+        
+        // 修改 UI 中的文件发送逻辑
+        $('btn-file').onclick = () => $('file-input').click();
+        $('file-input').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            if (!this.webrtc || !this.webrtc.fileTransferManager) {
+                showToast('文件传输通道未就绪');
+                e.target.value = '';
+                return;
+            }
+            
+            console.log('选择文件:', file.name, '大小:', (file.size/1024/1024).toFixed(2), 'MB');
+            
+            // 生成transferId
+            const transferId = uuid();
+            
+            // 立即显示UI（0%）
+            this.renderFileMessage('my', {
+                name: file.name,
+                size: file.size,
+                url: null
+            }, transferId, true);
+            
+            // 启动传输（异步，不等待）
+            this.webrtc.fileTransferManager.sendFile(file, (progress) => {
+                this.updateFileProgress(transferId, progress, true);
+            });
+            
+            // 清空input
+            e.target.value = '';
+        };
+
+        // 视频设置模态框
+        $('btn-video-call').onclick = () => {
+            if (this.webrtc && this.webrtc.isVideoActive) {
+                // 如果视频已开启，则关闭
+                this.stopVideoCall();
+            } else {
+                $('video-settings-modal').classList.add('open');
+            }
+        };
+        
+        $('btn-close-vid-settings').onclick = () => $('video-settings-modal').classList.remove('open');
+        $('vid-bitrate').oninput = (e) => $('vid-bitrate-val').innerText = e.target.value;
+        $('btn-start-video').onclick = () => this.requestVideoCall();
+        
+        // 视频窗口控制
+        $('btn-hangup').onclick = () => this.stopVideoCall();
+        $('btn-close-video').onclick = () => this.stopVideoCall();
+        $('btn-toggle-mute').onclick = () => this.toggleMute();
+        
+        $('btn-maximize').onclick = () => this.toggleMaximize();
+        $('btn-minimize').onclick = () => {
+            $('video-container').classList.add('video-hidden');
+            showToast('视频已最小化，点击视频按钮恢复');
+        };
+        
+        // 窗口拖动
+        const header = $('video-header');
+        const window_ = $('video-window');
+        
+        header.addEventListener('mousedown', (e) => {
+            if (this.videoWindowState.isMaximized) return;
+            this.videoWindowState.isDragging = true;
+            this.videoWindowState.startX = e.clientX;
+            this.videoWindowState.startY = e.clientY;
+            const rect = window_.getBoundingClientRect();
+            this.videoWindowState.startLeft = rect.left;
+            this.videoWindowState.startTop = rect.top;
+            window_.classList.add('dragging');
+        });
+        
+        // 窗口缩放
+        const resizeHandle = $('resize-handle');
+        resizeHandle.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            this.videoWindowState.isResizing = true;
+            this.videoWindowState.startX = e.clientX;
+            this.videoWindowState.startY = e.clientY;
+            const rect = window_.getBoundingClientRect();
+            this.videoWindowState.startWidth = rect.width;
+            this.videoWindowState.startHeight = rect.height;
+        });
+        
+        // 滚轮缩放（保持宽高比）
+        window_.addEventListener('wheel', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                const newScale = Math.max(0.5, Math.min(3, this.videoWindowState.scale * delta));
+                
+                if (newScale !== this.videoWindowState.scale) {
+                    const rect = window_.getBoundingClientRect();
+                    const centerX = rect.left + rect.width / 2;
+                    const centerY = rect.top + rect.height / 2;
+                    
+                    // 保持宽高比调整大小
+                    const baseWidth = 640;
+                    const baseHeight = 480;
+                    const newWidth = baseWidth * newScale;
+                    const newHeight = baseHeight * newScale;
+                    
+                    window_.style.width = newWidth + 'px';
+                    window_.style.height = newHeight + 'px';
+                    window_.style.left = (centerX - newWidth / 2) + 'px';
+                    window_.style.top = (centerY - newHeight / 2) + 'px';
+                    window_.style.transform = 'none';
+                    
+                    this.videoWindowState.scale = newScale;
+                }
+            }
+        }, { passive: false });
+        
+        // 全局鼠标移动和释放
+        window.addEventListener('mousemove', (e) => {
+            if (this.videoWindowState.isDragging) {
+                const dx = e.clientX - this.videoWindowState.startX;
+                const dy = e.clientY - this.videoWindowState.startY;
+                window_.style.left = (this.videoWindowState.startLeft + dx) + 'px';
+                window_.style.top = (this.videoWindowState.startTop + dy) + 'px';
+                window_.style.transform = 'none';
+            }
+            if (this.videoWindowState.isResizing) {
+                const dx = e.clientX - this.videoWindowState.startX;
+                const dy = e.clientY - this.videoWindowState.startY;
+                
+                // 保持宽高比 4:3
+                const newWidth = Math.max(320, this.videoWindowState.startWidth + dx);
+                const newHeight = newWidth * 0.75; // 4:3 比例
+                
+                window_.style.width = newWidth + 'px';
+                window_.style.height = newHeight + 'px';
+            }
+        });
+        
+        window.addEventListener('mouseup', () => {
+            this.videoWindowState.isDragging = false;
+            this.videoWindowState.isResizing = false;
+            window_.classList.remove('dragging');
+        });
+        
+        // 双击标题栏最大化/还原
+        header.addEventListener('dblclick', () => this.toggleMaximize());
+
+        $('btn-gen-offer').onclick = async () => {
+            if (!this.webrtc) return;
+            const offer = await this.webrtc.generateManualOffer();
+            $('manual-offer').value = offer;
+            showToast('Offer 已生成，请复制给对方');
+        };
+        
+        $('btn-apply-answer').onclick = () => {
+            const answer = $('manual-answer').value.trim();
+            if (!answer) {
+                showToast('请先粘贴对方的 Answer');
+                return;
+            }
+            this.webrtc.applyManualAnswer(answer);
+        };
+        
+        $('btn-close-manual').onclick = () => {
+            $('manual-signal-modal').classList.remove('open');
+        };
+        
+        // 接收者手动模式
+        $('btn-apply-offer').onclick = async () => {
+            const offer = $('manual-rcv-offer').value.trim();
+            if (!offer) {
+                showToast('请先粘贴对方的 Offer');
+                return;
+            }
+            if (!this.webrtc) return;
+            
+            try {
+                const answer = await this.webrtc.applyManualOfferAndCreateAnswer(offer);
+                $('manual-rcv-answer').value = answer;
+                showToast('Answer 已生成，请复制给对方');
+            } catch(e) {
+                showToast('生成 Answer 失败');
+            }
+        };
+        
+        $('btn-close-manual-rcv').onclick = () => {
+            $('manual-receiver-modal').classList.remove('open');
+            // 如果已连接，关闭模态框后继续建立业务通道
+            if (this.webrtc && this.webrtc.pc.connectionState === 'connected') {
+                if (this.webrtc.onBaseChannelOpen && this.webrtc.baseChannel) {
+                    setTimeout(() => this.webrtc.onBaseChannelOpen(this.webrtc.baseChannel), 500);
+                }
+            }
+        };
+        // 复制按钮事件
+        const setupCopyButton = (btnId, textId, successMsg) => {
+            $(btnId).onclick = async () => {
+                const text = $(textId).value;
+                if (!text) {
+                    showToast('没有内容可复制');
+                    return;
+                }
+                
+                try {
+                    await navigator.clipboard.writeText(text);
+                    showToast(successMsg || '已复制到剪贴板');
+                    
+                    // 视觉反馈
+                    const btn = $(btnId);
+                    const originalText = btn.innerText;
+                    btn.innerText = '✓ 已复制';
+                    btn.style.color = '#2ecc71';
+                    setTimeout(() => {
+                        btn.innerText = originalText;
+                        btn.style.color = '';
+                    }, 2000);
+                } catch (err) {
+                    // 降级方案
+                    const textarea = $(textId);
+                    textarea.select();
+                    document.execCommand('copy');
+                    showToast(successMsg || '已复制到剪贴板');
+                }
+            };
+        };
+        
+        // 发起者复制按钮
+        setupCopyButton('btn-copy-offer', 'manual-offer', 'Offer 已复制');
+        
+        // 接收者复制按钮
+        setupCopyButton('btn-copy-answer', 'manual-rcv-answer', 'Answer 已复制');
+        setupCopyButton('btn-copy-ice-rcv', 'manual-rcv-ice', 'ICE 候选已复制');
+        
+        // 为发起者的ICE也添加复制按钮（可选，在HTML中添加对应按钮）
+        if ($('btn-copy-ice')) {
+            setupCopyButton('btn-copy-ice', 'manual-ice', 'ICE 候选已复制');
+        }
+
+
+        // 图片预览相关事件
+        const modal = $('image-preview-modal');
+        const img = $('preview-image');
+        
+        // 滚轮缩放
+        modal.addEventListener('wheel', (e) => this.handlePreviewWheel(e), { passive: false });
+        
+        // 鼠标拖拽
+        modal.addEventListener('mousedown', (e) => {
+            if (e.target === img || e.target === modal || e.target === $('preview-container')) {
+                this.startDrag(e);
+            }
+        });
+        window.addEventListener('mousemove', (e) => this.doDrag(e));
+        window.addEventListener('mouseup', () => this.endDrag());
+        
+        // 触摸支持（移动端）
+        modal.addEventListener('touchstart', (e) => {
+            if (e.target === img || e.target === modal || e.target === $('preview-container')) {
+                this.startDrag(e);
+            }
+        }, { passive: false });
+        window.addEventListener('touchmove', (e) => this.doDrag(e), { passive: false });
+        window.addEventListener('touchend', () => this.endDrag());
+        
+        // 按钮事件
+        $('btn-close-preview').onclick = () => this.closeImagePreview();
+        $('btn-download-image').onclick = () => this.downloadPreviewImage();
+        $('btn-reset-zoom').onclick = () => this.fitImageToScreen();
+        
+        // 点击背景关闭（但拖拽时不关闭）
+        modal.addEventListener('click', (e) => {
+            if ((e.target === modal || e.target === $('preview-container')) && !this.previewState.isDragging) {
+                // 检查是否是点击（非拖拽）后关闭
+                if (this.previewState.scale <= 1) {
+                    this.closeImagePreview();
+                }
+            }
+        });
+        
+        // 双击重置
+        img.addEventListener('dblclick', () => this.fitImageToScreen());
+        
+        // ESC 键关闭预览
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('open')) {
+                this.closeImagePreview();
+            }
+        });
+    },
+
+    connect() {
+        const roomId = $('setting-room').value || 'room-1';
+        const role = $('setting-role').value;
+        const server = $('setting-server').value;
+        
+        // 手动模式不保存服务器设置
+        if (!role.includes('manual') && server) {
+            if(SignalingSimulator.server != server){
+                localStorage.setItem('SignalingServer', server);
+                SignalingSimulator.server = server;
+                SignalingSimulator._initialized = false;
+                SignalingSimulator._update();
+            }
+        }
+        
+        this.config = { roomId, role };
+        $('room-id-display').innerText = roomId;
+        
+        // 初始化 WebRTC
+        this.webrtc = new WebRTCManager(
+            roomId, 
+            role, 
+            (baseChannel) => this.onBaseChannelReady(baseChannel),
+            (e) => this.onTrack(e)
+        );
+        
+        $('settings-modal').classList.remove('open');
+        
+        // 手动模式打开对应弹窗
+        if (role === 'initiator-manual') {
+            $('manual-signal-modal').classList.add('open');
+            showToast('请生成 Offer 并复制给对方');
+        } else if (role === 'receiver-manual') {
+            $('manual-receiver-modal').classList.add('open');
+            showToast('请等待对方发送 Offer');
+        } else {
+            this.webrtc.startConnection();
+            showToast(`已作为 ${role} 尝试连接...`);
+        }
+    },
+
+    
+
+    // 基础通道打通后的逻辑
+    onBaseChannelReady(baseChannel) {
+        // 请求建立聊天通道
+        if(!this.webrtc.role.includes('manual'))this.webrtc.unlisten();
+        if (this.webrtc.role.includes('initiator')) {
+            // 稍等一会儿确保对面稳定
+            setTimeout(() => {
+                baseChannel.send(JSON.stringify({ type: 'request-channel', label: 'chat' }));
+                this.webrtc.createDataChannel('chat'); // 本地也创建
+            }, 500);
+        }
+        
+        // 请求建立文件通道
+        setTimeout(() => {
+            baseChannel.send(JSON.stringify({ type: 'request-channel', label: 'file' }));
+            this.webrtc.createDataChannel('file');
+        }, 1000);
+    },
+
+    onTrack(e) {
+        console.log('收到媒体流', e.streams[0]);
+        $('remote-video').srcObject = e.streams[0];
+        this.showVideoContainer();
+    },
+
+    // 修改 sendRichMessage 方法
+    sendRichMessage() {
+        const editor = $('rich-input');
+        const hasImage = editor.querySelector('img') !== null;
+        const hasText = editor.innerText.trim() !== '';
+        
+        if (!hasImage && !hasText) {
+            showToast('请输入内容');
+            return;
+        }
+        
+        if (!this.chatReady || !this.webrtc.dataChannels['chat']) {
+            showToast('聊天通道未就绪');
+            return;
+        }
+        
+        const content = this.extractRichContent(editor);
+        const dc = this.webrtc.dataChannels['chat'];
+        
+        // 检查总大小，如果过大则分片
+        const contentStr = JSON.stringify(content);
+        if (contentStr.length > MAX_MESSAGE_SIZE) {
+            // 分片发送
+            this.sendChunkedMessage(content, dc);
+        } else {
+            // 直接发送
+            dc.send(JSON.stringify({
+                type: 'rich-text',
+                content: content
+            }));
+        }
+        
+        this.renderRichMessage('my', content);
+        editor.innerHTML = '';
+    },
+
+    // 添加分片发送方法
+    sendChunkedMessage(content, dc) {
+        const messageId = uuid();
+        const contentStr = JSON.stringify(content);
+        const totalChunks = Math.ceil(contentStr.length / MAX_MESSAGE_SIZE);
+        
+        // 发送元数据
+        dc.send(JSON.stringify({
+            type: 'rich-text-start',
+            messageId: messageId,
+            totalChunks: totalChunks
+        }));
+        
+        // 分片发送
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * MAX_MESSAGE_SIZE;
+            const end = Math.min(start + MAX_MESSAGE_SIZE, contentStr.length);
+            const chunk = contentStr.substring(start, end);
+            
+            dc.send(JSON.stringify({
+                type: 'rich-text-chunk',
+                messageId: messageId,
+                index: i,
+                data: chunk
+            }));
+        }
+        
+        // 发送结束标记
+        dc.send(JSON.stringify({
+            type: 'rich-text-end',
+            messageId: messageId
+        }));
+    },
+
+    // 提取富文本内容
+    extractRichContent(editor) {
+        const content = [];
+        const nodes = editor.childNodes;
+        
+        nodes.forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                if (node.textContent.trim()) {
+                    content.push({ type: 'text', text: node.textContent });
+                }
+            } else if (node.nodeName === 'IMG') {
+                content.push({ type: 'image', src: node.src });
+            } else if (node.nodeName === 'BR') {
+                content.push({ type: 'br' });
+            } else {
+                // 递归处理嵌套元素
+                if (node.childNodes.length > 0) {
+                    const childContent = this.extractRichContent(node);
+                    content.push(...childContent);
+                }
+            }
+        });
+        
+        return content;
+    },
+
+    // 修改 renderRichMessage 中的图片渲染
+    renderRichMessage(who, content) {
+        const list = $('message-list');
+        const div = document.createElement('div');
+        div.className = `message ${who}`;
+        
+        let html = '<div class="message-content">';
+        content.forEach(item => {
+            if (item.type === 'text') {
+                html += `<span>${this.escapeHtml(item.text)}</span>`;
+            } else if (item.type === 'image') {
+                // 替换为预览模态框
+                html += `<img src="${item.src}" alt="image" class="chat-image" data-src="${item.src}" style="cursor: zoom-in;">`;
+            } else if (item.type === 'br') {
+                html += '<br>';
+            }
+        });
+        html += '</div>';
+        
+        html += `<div class="time">${new Date().toLocaleTimeString()}</div>`;
+        div.innerHTML = html;
+        list.appendChild(div);
+        list.scrollTop = list.scrollHeight;
+        
+        // 绑定图片点击事件
+        div.querySelectorAll('.chat-image').forEach(img => {
+            img.onclick = () => this.showImagePreview(img.dataset.src);
+        });
+    },
+
+    // 显示图片预览
+    showImagePreview(src) {
+        this.currentPreviewSrc = src;
+        const img = $('preview-image');
+        img.src = src;
+        $('image-preview-modal').classList.add('open');
+        
+        // 重置状态
+        this.resetPreviewState();
+        
+        // 尝试获取文件名
+        try {
+            const url = new URL(src);
+            const filename = url.pathname.split('/').pop() || '图片';
+            $('preview-filename').innerText = decodeURIComponent(filename);
+        } catch(e) {
+            $('preview-filename').innerText = '图片预览';
+        }
+        
+        // 等待图片加载完成后初始化
+        img.onload = () => {
+            this.fitImageToScreen();
+        };
+    },
+
+    // 重置预览状态
+    resetPreviewState() {
+        this.previewState = {
+            scale: 1,
+            translateX: 0,
+            translateY: 0,
+            isDragging: false,
+            startX: 0,
+            startY: 0,
+            lastX: 0,
+            lastY: 0
+        };
+        this.updatePreviewTransform();
+    },
+
+    // 适应屏幕
+    fitImageToScreen() {
+        const img = $('preview-image');
+        const container = $('preview-container');
+        const containerRect = container.getBoundingClientRect();
+        
+        // 计算适合屏幕的缩放比例
+        const scaleX = (containerRect.width * 0.9) / img.naturalWidth;
+        const scaleY = (containerRect.height * 0.9) / img.naturalHeight;
+        const fitScale = Math.min(scaleX, scaleY, 1);
+        
+        this.previewState.scale = fitScale;
+        this.previewState.translateX = 0;
+        this.previewState.translateY = 0;
+        this.updatePreviewTransform();
+    },
+
+    // 更新图片变换
+    updatePreviewTransform() {
+        const img = $('preview-image');
+        const { scale, translateX, translateY } = this.previewState;
+        img.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+        $('zoom-level').innerText = Math.round(scale * 100) + '%';
+        
+        // 根据缩放状态调整光标
+        const modal = $('image-preview-modal');
+        if (scale > 1) {
+            modal.style.cursor = this.previewState.isDragging ? 'grabbing' : 'grab';
+        } else {
+            modal.style.cursor = 'default';
+        }
+    },
+
+    // 处理滚轮缩放
+    handlePreviewWheel(e) {
+        e.preventDefault();
+        
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        const newScale = Math.max(0.1, Math.min(5, this.previewState.scale * delta));
+        
+        // 以鼠标位置为中心缩放
+        if (newScale !== this.previewState.scale) {
+            const img = $('preview-image');
+            const rect = img.getBoundingClientRect();
+            
+            // 计算鼠标相对于图片中心的位置
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const mouseX = e.clientX - centerX;
+            const mouseY = e.clientY - centerY;
+            
+            // 调整位移以实现以鼠标为中心的缩放
+            const scaleRatio = newScale / this.previewState.scale;
+            this.previewState.translateX = mouseX - (mouseX - this.previewState.translateX) * scaleRatio;
+            this.previewState.translateY = mouseY - (mouseY - this.previewState.translateY) * scaleRatio;
+            this.previewState.scale = newScale;
+            
+            this.updatePreviewTransform();
+        }
+    },
+
+    // 开始拖拽
+    startDrag(e) {
+        if (this.previewState.scale <= 1) return; // 只有放大时才允许拖拽
+        
+        this.previewState.isDragging = true;
+        this.previewState.startX = e.clientX || e.touches[0].clientX;
+        this.previewState.startY = e.clientY || e.touches[0].clientY;
+        this.previewState.lastX = this.previewState.translateX;
+        this.previewState.lastY = this.previewState.translateY;
+        
+        $('image-preview-modal').style.cursor = 'grabbing';
+        $('preview-image').style.transition = 'none';
+    },
+
+    // 拖拽中
+    doDrag(e) {
+        if (!this.previewState.isDragging) return;
+        
+        e.preventDefault();
+        const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+        const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+        
+        const dx = clientX - this.previewState.startX;
+        const dy = clientY - this.previewState.startY;
+        
+        this.previewState.translateX = this.previewState.lastX + dx;
+        this.previewState.translateY = this.previewState.lastY + dy;
+        
+        this.updatePreviewTransform();
+    },
+
+    // 结束拖拽
+    endDrag() {
+        this.previewState.isDragging = false;
+        $('image-preview-modal').style.cursor = this.previewState.scale > 1 ? 'grab' : 'default';
+    },
+
+    // 关闭图片预览
+    closeImagePreview() {
+        $('image-preview-modal').classList.remove('open');
+        $('preview-image').src = '';
+        this.currentPreviewSrc = null;
+        this.resetPreviewState();
+    },
+
+    // 关闭图片预览
+    closeImagePreview() {
+        $('image-preview-modal').classList.remove('open');
+        $('preview-image').src = '';
+        this.currentPreviewSrc = null;
+    },
+
+    // 下载预览的图片
+    downloadPreviewImage() {
+        if (!this.currentPreviewSrc) return;
+        
+        const a = document.createElement('a');
+        a.href = this.currentPreviewSrc;
+        a.download = 'image_' + Date.now() + '.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    },
+
+    // 渲染普通文本消息（兼容旧格式）
+    renderMessage(who, text, type) {
+        const list = $('message-list');
+        const div = document.createElement('div');
+        div.className = `message ${who}`;
+        
+        let html = '';
+        if (type === 'image') {
+            html = `<img src="${text}" alt="image" style="max-width:200px">`;
+        } else if (type === 'file') {
+            html = `<a class="file-download" href="${text.url}" download="${text.name}">📄 ${text.name}</a>`;
+        } else {
+            html = this.escapeHtml(text);
+        }
+        
+        div.innerHTML = html + `<div class="time">${new Date().toLocaleTimeString()}</div>`;
+        list.appendChild(div);
+        list.scrollTop = list.scrollHeight;
+    },
+
+    // 渲染文件消息（带进度条）
+    renderFileMessage(who, fileInfo, transferId, isUpload = false) {
+        const list = $('message-list');
+        
+        // 检查是否已存在该传输的消息
+        const existingMsg = document.getElementById(`file-${transferId}`);
+        if (existingMsg) {
+            // 如果已存在，只更新进度
+            return;
+        }
+        
+        const div = document.createElement('div');
+        div.className = `message ${who}`;
+        div.id = `file-${transferId}`;
+        
+        const sizeStr = this.formatFileSize(fileInfo.size);
+        
+        div.innerHTML = `
+            <div class="file-download">📄 ${fileInfo.name}</div>
+            <div class="file-progress" id="progress-${transferId}">
+                <div class="file-progress-bar">
+                    <div class="file-progress-fill" style="width: 0%"></div>
+                </div>
+                <div class="file-progress-text">0% - ${sizeStr}</div>
+            </div>
+            <div class="time">${new Date().toLocaleTimeString()}</div>
+        `;
+        
+        list.appendChild(div);
+        list.scrollTop = list.scrollHeight;
+        
+        // 存储引用以便更新进度
+        this.fileProgressMap.set(transferId, {
+            element: div,
+            isUpload: isUpload
+        });
+        
+        // 如果文件已准备好（接收完成或有URL），立即显示下载链接
+        if (fileInfo.url) {
+            this.completeFileTransfer(transferId, fileInfo);
+        }
+    },
+
+    // 更新文件传输进度
+    // 修改 updateFileProgress 方法，增加容错
+    updateFileProgress(transferId, percent, isUpload) {
+        const progressContainer = document.getElementById(`progress-${transferId}`);
+        if (!progressContainer) {
+            //console.warn('进度条不存在:', transferId);
+            return;
+        }
+        
+        const progressBar = progressContainer.querySelector('.file-progress-fill');
+        const progressText = progressContainer.querySelector('.file-progress-text');
+        
+        if (progressBar && progressText) {
+            const validPercent = Math.max(0, Math.min(100, Math.round(percent)));
+            progressBar.style.width = `${validPercent}%`;
+            
+            const action = isUpload ? '发送' : '接收';
+            progressText.innerText = `${validPercent}% ${action}中...`;
+            
+            if (validPercent === 100) {
+                progressBar.style.background = '#2ecc71';
+                progressText.innerText = '完成';
+            }
+        }
+    },
+
+    // 完成文件传输，显示下载链接
+    completeFileTransfer(transferId, fileInfo) {
+        const msgDiv = document.getElementById(`file-${transferId}`);
+        if (!msgDiv) {
+            console.warn('找不到文件消息元素:', transferId);
+            return;
+        }
+        
+        const progressDiv = msgDiv.querySelector('.file-progress');
+        if (progressDiv) {
+            progressDiv.style.display = 'none';
+        }
+        
+        const downloadDiv = msgDiv.querySelector('.file-download');
+        if (downloadDiv && fileInfo.url) {
+            const isMyMessage = msgDiv.classList.contains('my');
+            const textColor = isMyMessage ? '#fff' : '#007aff';
+            downloadDiv.outerHTML = `<a class="file-download" href="${fileInfo.url}" download="${fileInfo.name}" style="color: ${textColor}; text-decoration: underline; cursor: pointer;">📄 ${fileInfo.name} (${this.formatFileSize(fileInfo.size)})</a>`;
+        }
+        
+        // 从map中移除
+        this.fileProgressMap.delete(transferId);
+    },
+
+    formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    },
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    },
+
+    toggleMaximize() {
+        const window_ = $('video-window');
+        this.videoWindowState.isMaximized = !this.videoWindowState.isMaximized;
+        
+        if (this.videoWindowState.isMaximized) {
+            window_.classList.add('maximized');
+            $('btn-maximize').innerText = '🗗';
+            $('btn-maximize').title = '还原';
+        } else {
+            window_.classList.remove('maximized');
+            $('btn-maximize').innerText = '⛶';
+            $('btn-maximize').title = '全屏';
+            // 恢复默认大小
+            window_.style.width = '640px';
+            window_.style.height = '480px';
+            window_.style.top = '50%';
+            window_.style.left = '50%';
+            window_.style.transform = 'translate(-50%, -50%)';
+            this.videoWindowState.scale = 1;
+        }
+    },
+
+    // 根据分辨率标识获取宽度
+    getResWidth(res) {
+        const map = {
+            'qvga': 320,
+            'vga': 640,
+            'sd': 720,
+            'hd': 1280,
+            'fhd': 1920,
+            'qhd': 2560,
+            '4k': 3840,
+            '8k': 7680
+        };
+        return map[res] || 1280;
+    },
+
+    // 根据分辨率标识获取高度
+    getResHeight(res) {
+        const map = {
+            'qvga': 240,
+            'vga': 480,
+            'sd': 480,
+            'hd': 720,
+            'fhd': 1080,
+            'qhd': 1440,
+            '4k': 2160,
+            '8k': 4320
+        };
+        return map[res] || 720;
+    },
+    // 修改 requestVideoCall 支持屏幕共享
+    requestVideoCall() {
+        const source = $('vid-source').value;
+        const resVal = $('vid-res').value;
+        const maxBitrate = parseInt($('vid-bitrate').value) * 1000;
+
+        let constraints;
+        let isAutoRes = resVal === 'auto';
+        
+        if (source === 'screen') {
+            // 屏幕共享：自动模式下不指定分辨率，让浏览器自动获取屏幕尺寸
+            constraints = {
+                video: isAutoRes ? {
+                    cursor: 'always',
+                    displaySurface: 'monitor'
+                } : {
+                    cursor: 'always',
+                    displaySurface: 'monitor',
+                    width: this.getResWidth(resVal),
+                    height: this.getResHeight(resVal)
+                },
+                audio: false
+            };
+        } else {
+            // 摄像头模式
+            if (isAutoRes) {
+                // 自动模式：使用理想约束，让浏览器选择最佳分辨率
+                const facingMode = source === 'camera-back' ? 'environment' : 'user';
+                constraints = {
+                    video: {
+                        facingMode: facingMode,
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    },
+                    audio: true
+                };
+            } else {
+                const width = this.getResWidth(resVal);
+                const height = this.getResHeight(resVal);
+                const facingMode = source === 'camera-back' ? 'environment' : 'user';
+                
+                constraints = {
+                    video: { width, height, facingMode },
+                    audio: true
+                };
+            }
+        }
+
+        $('video-settings-modal').classList.remove('open');
+        
+        this.currentBitrate = maxBitrate;
+        this.videoConstraints = constraints;
+        this.videoSourceType = source;
+        this.isAutoResolution = isAutoRes;
+
+        this.webrtc.startVideoCall(constraints, source === 'screen', isAutoRes).then((stream) => {
+            // 获取实际分辨率并显示
+            const settings = stream.getVideoTracks()[0].getSettings();
+            const actualWidth = settings.width;
+            const actualHeight = settings.height;
+            
+            $('current-res').innerText = `${actualWidth}x${actualHeight}`;
+            $('res-info').style.display = 'block';
+            
+            // 更新UI状态
+            $('btn-video-call').classList.add('active');
+            $('btn-video-call').title = '结束视频通话';
+            this.webrtc.isVideoActive = true;
+            
+            // 根据实际分辨率调整窗口大小（屏幕共享时）
+            if (source === 'screen' && isAutoRes) {
+                this.adjustWindowToVideo(actualWidth, actualHeight);
+            }
+            
+            // 设置码率
+            const senders = this.webrtc.pc.getSenders();
+            senders.forEach(sender => {
+                if (sender.track && sender.track.kind === 'video') {
+                    const params = sender.getParameters();
+                    if (!params.encodings) params.encodings = [{}];
+                    params.encodings[0].maxBitrate = this.currentBitrate;
+                    sender.setParameters(params).catch(e => console.log('设置码率失败', e));
+                }
+            });
+            
+            showToast(source === 'screen' ? 
+                `屏幕共享已开启 (${actualWidth}x${actualHeight})` : 
+                '视频通话已开启'
+            );
+        }).catch(err => {
+            showToast('开启视频失败: ' + err.message);
+        });
+    },
+
+    // 根据视频实际分辨率调整窗口大小（保持比例）
+    adjustWindowToVideo(width, height) {
+        const window_ = $('video-window');
+        const maxWidth = window.innerWidth * 0.9;
+        const maxHeight = window.innerHeight * 0.9;
+        
+        // 计算缩放比例，保持宽高比
+        const videoRatio = width / height;
+        const windowRatio = maxWidth / maxHeight;
+        
+        let newWidth, newHeight;
+        
+        if (videoRatio > windowRatio) {
+            // 视频更宽，以宽度为基准
+            newWidth = Math.min(maxWidth, width);
+            newHeight = newWidth / videoRatio;
+        } else {
+            // 视频更高，以高度为基准
+            newHeight = Math.min(maxHeight, height);
+            newWidth = newHeight * videoRatio;
+        }
+        
+        // 最小尺寸限制
+        newWidth = Math.max(320, newWidth);
+        newHeight = Math.max(240, newHeight);
+        
+        window_.style.width = newWidth + 'px';
+        window_.style.height = newHeight + 'px';
+        window_.style.left = '50%';
+        window_.style.top = '50%';
+        window_.style.transform = 'translate(-50%, -50%)';
+        
+        this.videoWindowState.scale = newWidth / 640; // 更新缩放基准
+    },
+
+
+    handleRemoteVideoClosed() {
+        //showToast('对方已结束视频通话');
+        this.stopVideoCall();
+    },
+    // 添加停止视频通话方法
+    stopVideoCall() {
+        if (this.webrtc&&this.webrtc.isVideoActive) {
+            this.webrtc.hangup();
+            this.webrtc.isVideoActive = false;
+        }
+        
+        // 更新UI
+        $('btn-video-call').classList.remove('active');
+        $('btn-video-call').title = '发起视频通话';
+        $('video-container').classList.add('video-hidden');
+        
+        // 隐藏分辨率信息
+        $('res-info').style.display = 'none';
+        $('current-res').innerText = '-';
+        
+        // 重置窗口状态
+        const window_ = $('video-window');
+        window_.classList.remove('maximized');
+        window_.style.width = '640px';
+        window_.style.height = '480px';
+        window_.style.top = '50%';
+        window_.style.left = '50%';
+        window_.style.transform = 'translate(-50%, -50%)';
+        this.videoWindowState.scale = 1;
+        this.videoWindowState.isMaximized = false;
+        $('btn-maximize').innerText = '⛶';
+        
+        showToast('视频通话已结束');
+    },
+
+    // 添加静音切换
+    toggleMute() {
+        const localVideo = $('local-video');
+        if (localVideo.srcObject) {
+            const audioTracks = localVideo.srcObject.getAudioTracks();
+            audioTracks.forEach(track => {
+                track.enabled = !track.enabled;
+            });
+            $('btn-toggle-mute').classList.toggle('active');
+            $('btn-toggle-mute').title = audioTracks[0]?.enabled ? '静音' : '取消静音';
+        }
+    },
+
+    showLocalVideo(stream) {
+        $('local-video').srcObject = stream;
+    },
+
+    showVideoContainer() {
+        $('video-container').classList.remove('video-hidden');
+        // 确保窗口在可视区域内
+        const window_ = $('video-window');
+        const rect = window_.getBoundingClientRect();
+        if (rect.right > window.innerWidth || rect.bottom > window.innerHeight) {
+            window_.style.left = '50%';
+            window_.style.top = '50%';
+            window_.style.transform = 'translate(-50%, -50%)';
+        }
+    },
+
+    hideVideoContainer() {
+        $('video-container').classList.add('video-hidden');
+        $('remote-video').srcObject = null;
+        $('local-video').srcObject = null;
+    }
+};
+
+// 启动 UI
+UI.init();
+
+</script>
+</body>
+</html>
