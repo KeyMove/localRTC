@@ -1722,33 +1722,33 @@ class WebRTCManager {
         showToast(isScreenShare ? '收到屏幕共享请求...' : '收到视频通话请求...');
         
         // 接收端也开启视频
-        try {
-            let stream;
-            if (isScreenShare) {
-                // 屏幕共享接收端不需要开启自己的屏幕
-                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            } else {
-                // 视频通话接收端开启摄像头，尽量匹配对方分辨率
-                const constraints = isAutoRes ? {
-                    video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
-                    audio: true
-                } : { video: true, audio: true };
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
-            }
-            
-            UI.showLocalVideo(stream);
-            this.localStream = stream;
-            stream.getTracks().forEach(track => this.pc.addTrack(track, stream));
-            
-            // 获取实际分辨率
-            const settings = stream.getVideoTracks()[0].getSettings();
-            if (isAutoRes) {
-                $('current-res').innerText = `${settings.width}x${settings.height}`;
-                $('res-info').style.display = 'block';
-            }
-        } catch(e) { 
-            console.warn('接收端无法开启视频:', e); 
-        }
+        //try {
+        //    let stream;
+        //    if (isScreenShare) {
+        //        // 屏幕共享接收端不需要开启自己的屏幕
+        //        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        //    } else {
+        //        // 视频通话接收端开启摄像头，尽量匹配对方分辨率
+        //        const constraints = isAutoRes ? {
+        //            video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
+        //            audio: true
+        //        } : { video: true, audio: true };
+        //        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        //    }
+        //    
+        //    UI.showLocalVideo(stream);
+        //    this.localStream = stream;
+        //    stream.getTracks().forEach(track => this.pc.addTrack(track, stream));
+        //    
+        //    // 获取实际分辨率
+        //    const settings = stream.getVideoTracks()[0].getSettings();
+        //    if (isAutoRes) {
+        //        $('current-res').innerText = `${settings.width}x${settings.height}`;
+        //        $('res-info').style.display = 'block';
+        //    }
+        //} catch(e) { 
+        //    console.warn('接收端无法开启视频:', e); 
+        //}
 
         await this.pc.setRemoteDescription(new RTCSessionDescription(sdp));
         const answer = await this.pc.createAnswer();
