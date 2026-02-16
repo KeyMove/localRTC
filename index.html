@@ -781,6 +781,8 @@ const SignalingSimulator = {
     server: miurl,
     MAX_ENTRIES: 16, // 滑动窗口大小
     pollTime:1000,
+    maxPollCount:30,
+    pollCount:0,
     
     // 存储轮询状态和回调
     _pollInterval: null,
@@ -921,6 +923,7 @@ const SignalingSimulator = {
     
     // 通过定时轮询模拟listen功能，逐条判断新数据
     listen: (callback) => {
+        SignalingSimulator.pollCount=SignalingSimulator.maxPollCount;
         SignalingSimulator._callbacks.push(callback);
         
         if (SignalingSimulator._pollInterval) return;
@@ -936,6 +939,10 @@ const SignalingSimulator = {
         
         // 启动定时轮询，每500ms检查一次
         SignalingSimulator._pollInterval = setInterval(() => {
+            if(SignalingSimulator.pollCount){
+                SignalingSimulator.pollCount--;
+            }
+            else return;
             const windowData = SignalingSimulator._getWindow();
             if(!SignalingSimulator._initialized)return;
             
@@ -1516,10 +1523,16 @@ class WebRTCManager {
     // --- 核心信令逻辑 (通过 LocalStorage + 轮询listen) ---
     // 仅用于初始建立连接 SDP 交换
     async startConnection() {
+        /*
         if (this.role === 'initiator') {
             const offer = await this.pc.createOffer();
             await this.pc.setLocalDescription(offer);
             SignalingSimulator.set(`${this.roomId}_offer`, { sdp: offer });
+        }
+        */
+        if (this.role === 'initiator') {
+            const offer = await this.generateManualOffer();
+            SignalingSimulator.set(`${this.roomId}_offer`, offer);
         }
     }
 
@@ -1527,6 +1540,7 @@ class WebRTCManager {
         if (!val) return;
         console.log(`收到信令[${key}]:`, val);
         
+        /*
         if (key === `${this.roomId}_offer` && this.role === 'receiver') {
             await this.pc.setRemoteDescription(new RTCSessionDescription(val.sdp));
             const answer = await this.pc.createAnswer();
@@ -1543,6 +1557,15 @@ class WebRTCManager {
             try {
                 await this.pc.addIceCandidate(val.candidate);
             } catch(e) { console.error(e); }
+        }
+        */
+        if (key === `${this.roomId}_offer` && this.role === 'receiver') {
+            const answer = await this.applyManualOfferAndCreateAnswer(val);
+            SignalingSimulator.set(`${this.roomId}_answer`, answer);
+        }
+
+        if (key === `${this.roomId}_answer` && this.role === 'initiator') {
+            await this.applyManualAnswer(val);
         }
     }
 
@@ -1565,7 +1588,7 @@ class WebRTCManager {
                 this.baseChannel.send(JSON.stringify({ type: 'ice-candidate', candidate: e.candidate }));
             } else if (!this.isManualMode) {
                 // 否则通过 LS 发送（仅自动模式）
-                SignalingSimulator.set(`${this.roomId}_ice`, { candidate: e.candidate });
+                //SignalingSimulator.set(`${this.roomId}_ice`, { candidate: e.candidate });
             }
         }
     }
