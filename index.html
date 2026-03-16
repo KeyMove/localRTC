@@ -2797,6 +2797,7 @@ const UI = {
     },
     // 修改 requestVideoCall 支持屏幕共享
     requestVideoCall() {
+        requestWakeLock();
         const source = $('vid-source').value;
         const resVal = $('vid-res').value;
         const maxBitrate = parseInt($('vid-bitrate').value) * 1000;
@@ -2998,7 +2999,35 @@ const UI = {
 
 // 启动 UI
 UI.init();
+</script>
+<script>
+    let wakeLock = null;
 
+    // 请求屏幕常亮
+    async function requestWakeLock() {
+        try {
+            if (wakeLock)return;
+            wakeLock = await navigator.wakeLock.request('screen');
+            wakeLock.addEventListener('release', () => {
+                wakeLock = null;
+            });
+        } catch (err) {
+        }
+    }
+
+    // 释放屏幕常亮
+    function releaseWakeLock() {
+        if (wakeLock) {
+            wakeLock.release();
+        }
+    }
+
+    // 页面重新可见时自动重新请求（可选）
+    document.addEventListener('visibilitychange', () => {
+        if (wakeLock !== null && document.visibilityState === 'visible') {
+            requestWakeLock();
+        }
+    });
 </script>
 </body>
 </html>
