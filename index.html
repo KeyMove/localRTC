@@ -609,8 +609,9 @@
         <div class="form-group">
             <label>视频源</label>
             <select id="vid-source">
-                <option value="camera-front">前置摄像头</option>
                 <option value="camera-back">后置摄像头</option>
+                <option value="camera-front">前置摄像头</option>
+                <option value="camera-usb">USB摄像头</option>
                 <option value="screen">屏幕共享</option>
             </select>
         </div>
@@ -802,6 +803,229 @@ if(miurl){
         }
     });
 }
+
+// 全局权限保活管理器（RPC可访问）
+window.MediaPermissionKeeper = {
+    // 保活用的隐藏视频元素
+    keepAliveVideo: null,
+    // 当前持有的流（可被RPC引用）
+    activeStream: null,
+    imageCapture: null,      // ImageCapture 实例
+    
+    // 初始化保活容器
+    init() {
+        if (this.keepAliveVideo) return;
+        this.keepAliveVideo = document.createElement('video');
+        this.keepAliveVideo.style.cssText = `position:fixed;opacity:0;pointer-events:none;width:1px;height:1px;top:-9999px;`;
+        this.keepAliveVideo.muted = true;
+        this.keepAliveVideo.autoplay = true;
+        this.keepAliveVideo.playsInline = true;
+        document.body.appendChild(this.keepAliveVideo);
+        
+        console.log('📹 MediaPermissionKeeper 已初始化');
+    },
+
+    // 初始化 ImageCapture（需要高清流）
+    async initImageCapture() {
+        if (!this.activeStream) return null;
+        if (this.imageCapture) return this.imageCapture;
+        
+        const track = this.activeStream.getVideoTracks()[0];
+        if (track && typeof ImageCapture !== 'undefined') {
+            this.imageCapture = new ImageCapture(track);
+            return this.imageCapture;
+        }
+        return null;
+    },
+    
+    // 保活流（降级到最低配置）
+    async preserveStream(stream) {
+        this.init();
+        
+        if (!stream) return;
+        
+        // 降级视频轨道到最低配置（节省资源但保持权限）
+        stream.getVideoTracks().forEach(track => {
+            try {
+                track.applyConstraints({
+                    width: 160,
+                    height: 120,
+                    frameRate: 1
+                });
+            } catch(e) {}
+        });
+        
+        // 静音音频
+        stream.getAudioTracks().forEach(track => {
+            track.enabled = false;
+        });
+        
+        // 转移到隐藏video元素保活（保持流活跃）
+        this.keepAliveVideo.srcObject = stream;
+        this.activeStream = stream;
+
+        // 重新初始化 ImageCapture（因为track可能变化）
+        this.imageCapture = null;
+        await this.initImageCapture();
+        
+        console.log('✅ 摄像头权限已保活 (160x120@1fps)');
+        return stream;
+    },
+    
+    // 获取当前流（供RPC调用OpenCV.js使用）
+    getStream() {
+        return this.activeStream;
+    },
+
+    // 获取视频元素（OpenCV.js可直接使用）
+    getVideoElement() {
+        return this.keepAliveVideo;
+    },
+    
+    // 从保活恢复流（提升配置用于WebRTC）
+    async restoreStream(constraints = {video: true, audio: true}) {
+        if (!this.activeStream) return null;
+        
+        // 提升视频配置
+        const videoTrack = this.activeStream.getVideoTracks()[0];
+        if (videoTrack && constraints.video) {
+            try {
+                await videoTrack.applyConstraints(
+                    typeof constraints.video === 'object' ? constraints.video : {}
+                );
+                videoTrack.enabled = true;
+            } catch(e) {
+                console.log('无法提升配置，重新获取:', e);
+                this.release();
+                return null;
+            }
+        }
+        
+        // 启用音频
+        const audioTrack = this.activeStream.getAudioTracks()[0];
+        if (audioTrack && constraints.audio) {
+            audioTrack.enabled = true;
+        }
+        
+        const stream = this.activeStream;
+        this.activeStream = null; // 转移所有权
+        this.keepAliveVideo.srcObject = null;
+        
+        return stream;
+    },
+    
+    // 完全释放（页面关闭时）
+    release() {
+        if (this.activeStream) {
+            this.activeStream.getTracks().forEach(t => t.stop());
+            this.activeStream = null;
+        }
+        if (this.keepAliveVideo) {
+            this.keepAliveVideo.srcObject = null;
+        }
+        console.log('🧹 摄像头权限已释放');
+    },
+
+    // 获取摄像头能力（RPC可调用）
+    getCapabilities() {
+        const track = this.activeStream?.getVideoTracks()[0];
+        if (!track) return null;
+        
+        const caps = track.getCapabilities();
+        const settings = track.getSettings();
+        
+        return {
+            capabilities: caps,      // 支持的功能范围
+            currentSettings: settings, // 当前设置
+            supportedConstraints: navigator.mediaDevices.getSupportedConstraints()
+        };
+    },
+
+    // 应用约束（对焦、亮度等）
+    async applyConstraints(constraints) {
+        const track = this.activeStream?.getVideoTracks()[0];
+        if (!track) throw new Error('没有激活的视频流');
+        
+        await track.applyConstraints({ advanced: [constraints] });
+        return track.getSettings(); // 返回实际应用的设置
+    },
+    
+    // 拍照（带闪光灯控制）
+    async takePhoto(options = {}) {
+        const imgCapture = await this.initImageCapture();
+        if (!imgCapture) throw new Error('ImageCapture 不支持');
+        
+        // 闪光灯选项: 'auto', 'off', 'flash', 'torch'（常亮）
+        const photo = await imgCapture.takePhoto({
+            fillLightMode: options.flash || 'off',  // flash, off, auto
+            imageWidth: options.width,
+            imageHeight: options.height
+        });
+        
+        return photo; // 返回 Blob
+    },
+    
+    // 常亮补光灯（手电筒模式）
+    async setTorch(on) {
+        const track = this.activeStream?.getVideoTracks()[0];
+        if (!track) throw new Error('没有视频流');
+        
+        const caps = track.getCapabilities();
+        if (!caps.torch) throw new Error('设备不支持补光灯');
+        
+        await track.applyConstraints({ advanced: [{ torch: on }] });
+        return on;
+    },
+    
+    // 平滑缩放（数字变焦）
+    async setZoom(level) {
+        // level: 1.0 = 1x, 2.0 = 2x 变焦
+        const track = this.activeStream?.getVideoTracks()[0];
+        const caps = track.getCapabilities();
+        
+        if (!caps.zoom) throw new Error('不支持变焦');
+        
+        const zoom = Math.max(caps.zoom.min, Math.min(caps.zoom.max, level));
+        await track.applyConstraints({ advanced: [{ zoom: zoom }] });
+        return zoom;
+    },
+    
+    // 对焦控制
+    async setFocus(mode, distance = null) {
+        // mode: 'manual', 'single-shot', 'continuous'
+        const track = this.activeStream?.getVideoTracks()[0];
+        const caps = track.getCapabilities();
+        
+        const constraints = { focusMode: mode };
+        
+        if (mode === 'manual' && distance !== null && caps.focusDistance) {
+            constraints.focusDistance = distance; // 0.0 - 1.0
+        }
+        
+        await track.applyConstraints({ advanced: [constraints] });
+        return track.getSettings();
+    },
+    
+    // 曝光补偿（亮度）
+    async setExposure(compensation) {
+        // compensation: -2.0 到 2.0（EV值）
+        const track = this.activeStream?.getVideoTracks()[0];
+        await track.applyConstraints({ 
+            advanced: [{ exposureCompensation: compensation }] 
+        });
+        return track.getSettings().exposureCompensation;
+    },
+    
+    // 白平衡
+    async setWhiteBalance(mode) {
+        // mode: 'manual', 'continuous', 'single-shot'
+        const track = this.activeStream?.getVideoTracks()[0];
+        await track.applyConstraints({ advanced: [{ whiteBalanceMode: mode }] });
+        return mode;
+    }
+
+    
+};
 // --- 1. 简化版信令服务器模拟 (滑动窗口 + 自增ID + 轮询listen) ---
 const SignalingSimulator = {
     prefix: 'webrtc_signal_',
@@ -1418,6 +1642,9 @@ class WebRTCManager {
         if (!this.isManualMode) {
             this.unlisten = SignalingSimulator.listen((key, val) => this.handleSignal(key, val));
         }
+
+        // 初始化保活管理器
+        window.MediaPermissionKeeper.init();
     }
 
     // 设置基础数据通道 (用于后续信令)
@@ -1705,6 +1932,35 @@ class WebRTCManager {
     // 修改 WebRTCManager 中的 startVideoCall 支持屏幕共享
     async startVideoCall(constraints, isScreenShare = false, isAutoRes = false) {
         try {
+            // 屏幕共享不走保活逻辑（每次都是新的）
+            if (!isScreenShare) {
+                // 尝试从保活恢复
+                const restoredStream = await window.MediaPermissionKeeper.restoreStream(constraints);
+                if (restoredStream) {
+                    console.log('⚡ 从RPC保活流快速恢复视频');
+                    this.localStream = restoredStream;
+                    
+                    // 添加到PC
+                    this.localStream.getTracks().forEach(track => {
+                        this.pc.addTrack(track, this.localStream);
+                    });
+                    
+                    UI.showLocalVideo(this.localStream);
+                    
+                    // SDP 交换
+                    const offer = await this.pc.createOffer();
+                    await this.pc.setLocalDescription(offer);
+                    if (this.baseChannel?.readyState === 'open') {
+                        this.baseChannel.send(JSON.stringify({ 
+                            type: 'offer-video', 
+                            sdp: offer,
+                            isScreenShare: false
+                        }));
+                    }
+                    
+                    return this.localStream;
+                }
+            }
             let stream;
             if (isScreenShare) {
                 stream = await navigator.mediaDevices.getDisplayMedia(constraints);
@@ -1828,13 +2084,37 @@ class WebRTCManager {
     }
 
     // 挂断
-    hangup() {
-        // 停止所有本地轨道
-        if (this.localStream) {
-            this.localStream.getTracks().forEach(track => {
-                track.stop();
-                console.log('轨道已停止:', track.kind);
+    hangup(preserveForRPC = true) {
+        if (preserveForRPC && this.localStream) {
+            console.log('📹 保留摄像头给RPC使用');
+            
+            // 从PC移除轨道（对方看不到）
+            const senders = this.pc.getSenders();
+            senders.forEach(sender => {
+                if (sender.track) {
+                    try {
+                        this.pc.removeTrack(sender);
+                    } catch(e) {}
+                }
             });
+            
+            // 转移流到保活管理器（不停止track）
+            window.MediaPermissionKeeper.preserveStream(this.localStream);
+            this.localStream = null;
+            
+            // 通知对方视频结束
+            if (this.baseChannel?.readyState === 'open') {
+                this.baseChannel.send(JSON.stringify({ type: 'video-closed' }));
+            }
+            
+            this.isVideoActive = false;
+            return;
+        }
+        
+        // 完全释放模式
+        window.MediaPermissionKeeper.release();
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => track.stop());
             this.localStream = null;
         }
         
@@ -1854,21 +2134,73 @@ class WebRTCManager {
         }
         
         UI.hideVideoContainer();
+        if(this.isVideoActive){
+            // 通知对方视频已关闭
+            if (this.baseChannel && this.baseChannel.readyState === 'open') {
+                this.baseChannel.send(JSON.stringify({ type: 'video-closed' }));
+            }
+        }
         this.isVideoActive = false;
         
-        // 通知对方视频已关闭
-        if (this.baseChannel && this.baseChannel.readyState === 'open') {
-            this.baseChannel.send(JSON.stringify({ type: 'video-closed' }));
-        }
     }
 
     async handleRPC(code, rpcId) {
-        console.log('收到RPC请求:', code.substring(0, 100) + '...');
-        try {
-            const fn = new Function('return (async () => { ' + code + ' })()');
-            const result = await fn();
+        const keeper = window.MediaPermissionKeeper;
+        
+        const RPCContext = {
+            // 基础流访问（之前已有）
+            getVideoStream: () => keeper.getStream(),
+            getVideoElement: () => keeper.keepAliveVideo,
             
-            if (this.baseChannel && this.baseChannel.readyState === 'open') {
+            // === 摄像头硬件控制 API ===
+            
+            // 1. 查询能力（先看看支持什么）
+            getCameraInfo: () => keeper.getCapabilities(),
+            
+            // 2. 对焦控制
+            setAutoFocus: (enabled) => keeper.setFocus(enabled ? 'continuous' : 'manual'),
+            manualFocus: (distance) => keeper.setFocus('manual', distance), // distance: 0-1
+            
+            // 3. 闪光灯/补光灯
+            setFlash: (mode) => keeper.takePhoto({ flash: mode }), // 拍照时闪光
+            setTorch: (on) => keeper.setTorch(on),                 // 常亮手电筒
+            
+            // 4. 变焦（滑块控制）
+            setZoom: (level) => keeper.setZoom(level),             // 1.0, 2.0, 5.0...
+            
+            // 5. 曝光/亮度
+            setBrightness: (ev) => keeper.setExposure(ev),         // -2.0 to 2.0
+            setExposure: (mode) => keeper.applyConstraints({ exposureMode: mode }),
+            
+            // 6. 白平衡
+            setWhiteBalance: (mode) => keeper.setWhiteBalance(mode),
+            
+            // 7. 拍照（获取最高质量图像，区别于视频帧）
+            takePhoto: (opts) => keeper.takePhoto(opts),
+            
+            // 8. 实时调整任何约束
+            applyConstraints: (c) => keeper.applyConstraints(c),
+            
+            // 辅助：等待摄像头就绪
+            async ensureCamera() {
+                const stream = keeper.getStream();
+                if (!stream) throw new Error('摄像头未初始化，请先开启视频');
+                return stream;
+            }
+        };
+        
+        try {
+            const fn = new Function('ctx', `
+                with(ctx) {
+                    return (async function() {
+                        ${code}
+                    })();
+                }
+            `);
+            
+            const result = await fn(RPCContext);
+            
+            if (this.baseChannel?.readyState === 'open') {
                 this.baseChannel.send(JSON.stringify({
                     type: 'rpc-result',
                     id: rpcId,
@@ -1877,8 +2209,8 @@ class WebRTCManager {
                 }));
             }
         } catch (err) {
-            console.error('RPC执行错误:', err);
-            if (this.baseChannel && this.baseChannel.readyState === 'open') {
+            console.error('RPC错误:', err);
+            if (this.baseChannel?.readyState === 'open') {
                 this.baseChannel.send(JSON.stringify({
                     type: 'rpc-result',
                     id: rpcId,
@@ -1946,6 +2278,11 @@ const UI = {
         this.bindEvents();
         this.setupRichEditor();
         $('setting-server').value = localStorage.getItem('SignalingServer');
+        window.addEventListener('beforeunload', () => {
+            if (window.MediaPermissionKeeper) {
+                window.MediaPermissionKeeper.release();
+            }
+        });
     },
 
     setupRichEditor() {
@@ -2914,17 +3251,14 @@ const UI = {
                 audio: false
             };
         } else {
+            const usbmode=source === 'camera-usb';
             // 摄像头模式
             if (isAutoRes) {
                 // 自动模式：使用理想约束，让浏览器选择最佳分辨率
                 const facingMode = source === 'camera-back' ? 'environment' : 'user';
                 constraints = {
-                    video: {
-                        facingMode: facingMode,
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 }
-                    },
-                    audio: true
+                    video: {facingMode: facingMode,width: { ideal: 1920 },height: { ideal: 1080 }},
+                    audio: !usbmode
                 };
             } else {
                 const width = this.getResWidth(resVal);
@@ -2933,7 +3267,7 @@ const UI = {
                 
                 constraints = {
                     video: { width, height, facingMode },
-                    audio: true
+                    audio: !usbmode
                 };
             }
         }
@@ -3025,9 +3359,9 @@ const UI = {
         this.stopVideoCall();
     },
     // 添加停止视频通话方法
-    stopVideoCall() {
-        if (this.webrtc&&this.webrtc.isVideoActive) {
-            this.webrtc.hangup();
+    stopVideoCall(completeRelease = false) {
+        if (this.webrtc) {
+            this.webrtc.hangup(!completeRelease); // 默认保活
             this.webrtc.isVideoActive = false;
         }
         
@@ -3053,6 +3387,51 @@ const UI = {
         $('btn-maximize').innerText = '⛶';
         
         showToast('视频通话已结束');
+        // 更新UI提示
+        if (!completeRelease) {
+            showToast('视频已关闭，摄像头保活中（供RPC使用）');
+            // 显示一个小指示灯表示摄像头还在后台运行
+            this.showCameraAliveIndicator(true);
+        } else {
+            showToast('摄像头已完全释放');
+            this.showCameraAliveIndicator(false);
+        }
+    },
+
+    // 摄像头保活指示器（可选）
+    showCameraAliveIndicator(show) {
+        let indicator = document.getElementById('camera-alive-indicator');
+        if (show) {
+            if (!indicator) {
+                indicator = document.createElement('div');
+                indicator.id = 'camera-alive-indicator';
+                indicator.style.cssText = `
+                    position: absolute; top: 1rem; right: 1rem;
+                    width: .8rem; height: .8rem; border-radius: 50%;
+                    background: #e74c3c; z-index: 9999;
+                    box-shadow: 0 0 5px #e74c3c;
+                    animation: pulse 2s infinite;
+                `;
+                indicator.title = '摄像头保活中（RPC可用，点击完全释放）';
+                indicator.onclick=()=>{
+                    this.stopVideoCall(true);
+                };
+                document.body.appendChild(indicator);
+                
+                // 添加动画样式
+                const style = document.createElement('style');
+                style.textContent = `
+                    @keyframes pulse {
+                        0%, 100% { opacity: 1; }
+                        50% { opacity: 0.3; }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            indicator.style.display = 'block';
+        } else if (indicator) {
+            indicator.style.display = 'none';
+        }
     },
 
     // 添加静音切换
@@ -3135,6 +3514,7 @@ const UI = {
         showToast('RPC代码已发送');
     }
 };
+
 
 // 启动 UI
 UI.init();
