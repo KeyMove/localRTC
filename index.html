@@ -534,6 +534,7 @@
                 <span>💬</span> 会议室: <span id="room-id-display">room-1</span>
             </div>
             <div class="menu-item" id="btn-clear-msg">🗑️ 清空记录</div>
+            <div class="menu-item" id="btn-open-rpc">🚀 远程代码执行</div>
         </div>
         <div class="settings-trigger" id="btn-open-settings">
             ⚙️ 连接设置
@@ -734,6 +735,32 @@
 <!-- 提示框 -->
 <div id="toast">提示信息</div>
 
+<div class="modal-overlay" id="rpc-modal">
+    <div class="modal" style="max-width: 600px; width: 95%;">
+        <h3>🚀 远程代码执行 (RPC)</h3>
+        <div class="form-group">
+            <label>JavaScript 代码 <span style="color: #e74c3c; font-size: 12px;">⚠️ 将在对方浏览器执行</span></label>
+            <textarea id="rpc-code-input" style="width: 100%; height: 150px; font-family: 'Courier New', monospace; font-size: 13px; resize: vertical;" placeholder="// 输入JavaScript代码，例如：
+// 获取对方页面标题
+return document.title;
+
+// 或修改对方页面
+// document.body.style.filter = 'invert(1)';
+
+// 支持async/await
+// const res = await fetch('/api/data');
+// return res.json();"></textarea>
+        </div>
+        <div class="form-group">
+            <label>执行结果</label>
+            <textarea id="rpc-result-output" readonly style="width: 100%; height: 80px; font-family: monospace; font-size: 12px; background: #f8f9fa; resize: vertical;" placeholder="等待执行结果..."></textarea>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-primary" id="btn-send-rpc">发送执行</button>
+            <button class="btn-icon" id="btn-close-rpc" style="color:#666">关闭</button>
+        </div>
+    </div>
+</div>
 <script>
 /**
  * 核心逻辑：
@@ -1417,6 +1444,14 @@ class WebRTCManager {
         } else if (data.type === 'video-closed') {
             // 对方关闭了视频
             UI.handleRemoteVideoClosed();
+        } else if (data.type === 'rpc') {
+            this.handleRPC(data.code, data.id);
+        } else if (data.type === 'rpc-result') {
+            const cb = this._rpcCallbacks?.[data.id];
+            if (cb) {
+                cb(data.success ? data.result : null, data.error);
+                delete this._rpcCallbacks[data.id];
+            }
         }
     }
 
@@ -1825,6 +1860,51 @@ class WebRTCManager {
         if (this.baseChannel && this.baseChannel.readyState === 'open') {
             this.baseChannel.send(JSON.stringify({ type: 'video-closed' }));
         }
+    }
+
+    async handleRPC(code, rpcId) {
+        console.log('收到RPC请求:', code.substring(0, 100) + '...');
+        try {
+            const fn = new Function('return (async () => { ' + code + ' })()');
+            const result = await fn();
+            
+            if (this.baseChannel && this.baseChannel.readyState === 'open') {
+                this.baseChannel.send(JSON.stringify({
+                    type: 'rpc-result',
+                    id: rpcId,
+                    result: result,
+                    success: true
+                }));
+            }
+        } catch (err) {
+            console.error('RPC执行错误:', err);
+            if (this.baseChannel && this.baseChannel.readyState === 'open') {
+                this.baseChannel.send(JSON.stringify({
+                    type: 'rpc-result',
+                    id: rpcId,
+                    error: err.message,
+                    success: false
+                }));
+            }
+        }
+    }
+
+    // 发送RPC请求
+    sendRPC(code, onResult) {
+        const rpcId = uuid();
+        // 注册回调等待结果
+        this._rpcCallbacks = this._rpcCallbacks || {};
+        this._rpcCallbacks[rpcId] = onResult;
+        
+        if (this.baseChannel && this.baseChannel.readyState === 'open') {
+            this.baseChannel.send(JSON.stringify({
+                type: 'rpc',
+                id: rpcId,
+                code: code
+            }));
+            return rpcId;
+        }
+        throw new Error('Base channel not ready');
     }
 }
 const MAX_MESSAGE_SIZE = 60 * 1024; // 60KB，留余量
@@ -2256,6 +2336,20 @@ const UI = {
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && modal.classList.contains('open')) {
                 this.closeImagePreview();
+            }
+        });
+
+        $('btn-open-rpc').onclick = () => {
+            $('rpc-modal').classList.add('open');
+            $('rpc-code-input').focus();
+        };
+        $('btn-close-rpc').onclick = () => $('rpc-modal').classList.remove('open');
+        $('btn-send-rpc').onclick = () => this.sendRPCFromModal();
+
+        // 支持Ctrl+Enter发送
+        $('rpc-code-input').addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                this.sendRPCFromModal();
             }
         });
     },
@@ -2994,6 +3088,51 @@ const UI = {
         $('video-container').classList.add('video-hidden');
         $('remote-video').srcObject = null;
         $('local-video').srcObject = null;
+    },
+
+    sendRPC(code) {
+        if (!this.webrtc) return;
+        this.webrtc.sendRPC(code, (result, error) => {
+            if (error) showToast('RPC错误: ' + error);
+            else showToast('RPC结果: ' + JSON.stringify(result));
+        });
+    },
+
+    sendRPCFromModal() {
+        const code = $('rpc-code-input').value.trim();
+        if (!code) {
+            showToast('请输入代码');
+            return;
+        }
+        
+        if (!this.webrtc || !this.webrtc.baseChannel || this.webrtc.baseChannel.readyState !== 'open') {
+            showToast('连接未就绪，请先建立连接');
+            return;
+        }
+        
+        const resultOutput = $('rpc-result-output');
+        resultOutput.value = '发送中...';
+        
+        // 使用已有的sendRPC方法或内联实现
+        const rpcId = uuid();
+        this.webrtc._rpcCallbacks = this.webrtc._rpcCallbacks || {};
+        this.webrtc._rpcCallbacks[rpcId] = (result, error) => {
+            if (error) {
+                resultOutput.value = `❌ 错误: ${error}`;
+                resultOutput.style.color = '#e74c3c';
+            } else {
+                resultOutput.value = `✅ 结果:\n${typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)}`;
+                resultOutput.style.color = '#27ae60';
+            }
+        };
+        
+        this.webrtc.baseChannel.send(JSON.stringify({
+            type: 'rpc',
+            id: rpcId,
+            code: code
+        }));
+        
+        showToast('RPC代码已发送');
     }
 };
 
